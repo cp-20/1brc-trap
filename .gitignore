@@ -1,0 +1,26 @@
+# Generated benchmark data
+data/*.csv
+
+# Benchmark outputs
+*.out
+
+# Native build outputs
+traq_baseline
+traq_baseline_*
+baselines/c/traq_baseline_c
+baselines/cpp/traq_baseline_cpp
+baselines/rust/traq_baseline_rust
+baselines/zig/traq_baseline_zig
+
+# .NET build outputs
+bin/
+obj/
+
+# JavaScript / TypeScript dependencies and caches
+node_modules/
+.npm/
+.yarn/
+
+# Editor and OS noise
+.DS_Store
+*.swp
