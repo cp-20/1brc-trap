@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -12,18 +14,13 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
-	maxChannelPathLen = 64
-	defaultMapCap     = 1 << 15
-	defaultBufferLen  = 4 << 20
+	defaultMapCap    = 1 << 15
+	defaultBufferLen = 4 << 20
 )
-
-type channelKey struct {
-	bytes [maxChannelPathLen]byte
-	len   uint8
-}
 
 type stats struct {
 	messages uint64
@@ -33,16 +30,21 @@ type stats struct {
 	maxLen   uint32
 }
 
-type entry struct {
-	key  channelKey
-	id   uint32
-	used bool
-}
-
 type flatMap struct {
-	entries []entry
+	entries []mapEntry
 	aggs    []channelAgg
 	size    int
+}
+
+type mapEntry struct {
+	key  string
+	hash uint64
+	id   uint32
+}
+
+type outputEntry struct {
+	key string
+	id  uint32
 }
 
 type channelAgg struct {
@@ -96,6 +98,19 @@ var monthStartUnix = [13]int64{
 	1827619200,
 	1830297600,
 }
+
+var monthByDay = func() [365]uint8 {
+	var result [365]uint8
+	month := 0
+	for day := range result {
+		timestamp := monthStartUnix[0] + int64(day*86400)
+		if timestamp >= monthStartUnix[month+1] {
+			month++
+		}
+		result[day] = uint8(month)
+	}
+	return result
+}()
 
 type mmapFile struct {
 	file *os.File
@@ -247,21 +262,29 @@ func analyzeChunk(data []byte) *flatMap {
 			i++
 			continue
 		}
-		timestamp := int64(0)
-		p := i
-		for p < len(data) && data[p] != ',' {
-			timestamp = timestamp*10 + int64(data[p]-'0')
-			p++
-		}
-		if p >= len(data) {
+		if i+10 >= len(data) {
 			break
 		}
+		timestamp := uint32(data[i] - '0')
+		timestamp = timestamp*10 + uint32(data[i+1]-'0')
+		timestamp = timestamp*10 + uint32(data[i+2]-'0')
+		timestamp = timestamp*10 + uint32(data[i+3]-'0')
+		timestamp = timestamp*10 + uint32(data[i+4]-'0')
+		timestamp = timestamp*10 + uint32(data[i+5]-'0')
+		timestamp = timestamp*10 + uint32(data[i+6]-'0')
+		timestamp = timestamp*10 + uint32(data[i+7]-'0')
+		timestamp = timestamp*10 + uint32(data[i+8]-'0')
+		timestamp = timestamp*10 + uint32(data[i+9]-'0')
 		month := monthIndexFromUnixTimestamp(timestamp)
+		p := i + 11
+
+		channelBegin := p
+		for data[p] != ',' {
+			p++
+		}
+		channel := unsafe.String(&data[channelBegin], p-channelBegin)
+		channelHash := hashBytes(data[channelBegin:p])
 		p++
-
-		k, channelLen := loadChannelKey(data[p:])
-
-		p += channelLen + 1
 		messageLength := uint32(0)
 		for data[p] != ',' {
 			messageLength = messageLength*10 + uint32(data[p]-'0')
@@ -285,19 +308,15 @@ func analyzeChunk(data []byte) *flatMap {
 			p++
 		}
 
-		m.add(k, month, messageLength, stampCount)
+		m.add(channel, channelHash, month, messageLength, stampCount)
 		i = p
 	}
 	return m
 }
 
-func monthIndexFromUnixTimestamp(timestamp int64) int {
-	for i := len(monthStartUnix) - 2; i >= 0; i-- {
-		if timestamp >= monthStartUnix[i] {
-			return i
-		}
-	}
-	return 0
+func monthIndexFromUnixTimestamp(timestamp uint32) int {
+	day := (timestamp - uint32(monthStartUnix[0])) / 86400
+	return int(monthByDay[day])
 }
 
 func splitChunks(data []byte, begin, end, threads int) []chunk {
@@ -339,17 +358,18 @@ func newFlatMap(capacity int) *flatMap {
 		c <<= 1
 	}
 	return &flatMap{
-		entries: make([]entry, c),
+		entries: make([]mapEntry, c),
 		aggs:    make([]channelAgg, 0, c/2),
 	}
 }
 
-func (m *flatMap) add(k channelKey, month int, messageLength, stampCount uint32) {
+func (m *flatMap) add(key string, hash uint64, month int, messageLength, stampCount uint32) {
 	if (m.size+1)*10 >= len(m.entries)*7 {
 		m.rehash(len(m.entries) * 2)
 	}
-	e := m.findOrInsertHash(k, hashChannel(&k))
-	s := &m.aggs[e.id].months[month]
+	e := m.findOrInsert(key, hash)
+	id := e.id
+	s := &m.aggs[id].months[month]
 	if s.messages == 0 {
 		*s = stats{
 			messages: 1,
@@ -371,36 +391,20 @@ func (m *flatMap) add(k channelKey, month int, messageLength, stampCount uint32)
 	}
 }
 
-func (m *flatMap) findOrInsertHash(k channelKey, h uint64) *entry {
+func (m *flatMap) findOrInsert(key string, hash uint64) *mapEntry {
 	mask := uint64(len(m.entries) - 1)
-	index := h & mask
+	index := hash & mask
 	for {
 		e := &m.entries[index]
-		if !e.used {
-			e.key = k
+		if e.key == "" {
+			e.key = key
+			e.hash = hash
 			e.id = uint32(len(m.aggs))
-			e.used = true
 			m.aggs = append(m.aggs, channelAgg{})
 			m.size++
 			return e
 		}
-		if e.key == k {
-			return e
-		}
-		index = (index + 1) & mask
-	}
-}
-
-func (m *flatMap) insertRehashed(k channelKey, id uint32) *entry {
-	mask := uint64(len(m.entries) - 1)
-	index := hashChannel(&k) & mask
-	for {
-		e := &m.entries[index]
-		if !e.used {
-			e.key = k
-			e.id = id
-			e.used = true
-			m.size++
+		if e.hash == hash && e.key == key {
 			return e
 		}
 		index = (index + 1) & mask
@@ -410,13 +414,13 @@ func (m *flatMap) insertRehashed(k channelKey, id uint32) *entry {
 func (m *flatMap) mergeFrom(other *flatMap) {
 	for i := range other.entries {
 		e := &other.entries[i]
-		if !e.used {
+		if e.key == "" {
 			continue
 		}
 		if (m.size+1)*10 >= len(m.entries)*7 {
 			m.rehash(len(m.entries) * 2)
 		}
-		dst := m.findOrInsertHash(e.key, hashChannel(&e.key))
+		dst := m.findOrInsert(e.key, e.hash)
 		srcAgg := &other.aggs[e.id]
 		dstAgg := &m.aggs[dst.id]
 		for month := range srcAgg.months {
@@ -444,15 +448,24 @@ func (m *flatMap) mergeFrom(other *flatMap) {
 
 func (m *flatMap) rehash(capacity int) {
 	old := m.entries
-	m.entries = make([]entry, capacity)
+	m.entries = make([]mapEntry, capacity)
 	m.size = 0
 	for i := range old {
 		e := &old[i]
-		if e.used {
-			slot := m.insertRehashed(e.key, e.id)
-			_ = slot
+		if e.key != "" {
+			m.insertRehashed(*e)
 		}
 	}
+}
+
+func (m *flatMap) insertRehashed(entry mapEntry) {
+	mask := uint64(len(m.entries) - 1)
+	index := entry.hash & mask
+	for m.entries[index].key != "" {
+		index = (index + 1) & mask
+	}
+	m.entries[index] = entry
+	m.size++
 }
 
 func (m *flatMap) groups() int {
@@ -468,14 +481,15 @@ func (m *flatMap) groups() int {
 }
 
 func writeResult(w io.Writer, m *flatMap) error {
-	entries := make([]entry, 0, m.size)
+	entries := make([]outputEntry, 0, m.size)
 	for i := range m.entries {
-		if m.entries[i].used {
-			entries = append(entries, m.entries[i])
+		e := &m.entries[i]
+		if e.key != "" {
+			entries = append(entries, outputEntry{key: e.key, id: e.id})
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		return lessChannel(&entries[i].key, &entries[j].key)
+		return entries[i].key < entries[j].key
 	})
 
 	buffered := bufio.NewWriterSize(w, defaultBufferLen)
@@ -489,7 +503,7 @@ func writeResult(w io.Writer, m *flatMap) error {
 				continue
 			}
 			line = line[:0]
-			line = appendChannel(line, e.key)
+			line = append(line, e.key...)
 			line = append(line, ',')
 			line = append(line, monthLabels[month]...)
 			line = append(line, '=')
@@ -562,14 +576,27 @@ func openOutput(path string) (io.Writer, func(), error) {
 	}, nil
 }
 
-func hashChannel(k *channelKey) uint64 {
-	h := uint64(1469598103934665603)
-	for i := 0; i < int(k.len); i++ {
-		h ^= uint64(k.bytes[i])
-		h *= 1099511628211
+func hashBytes(data []byte) uint64 {
+	n := len(data)
+	var a, b, c uint64
+	switch {
+	case n >= 24:
+		a = binary.LittleEndian.Uint64(data)
+		b = binary.LittleEndian.Uint64(data[n/2-4:])
+		c = binary.LittleEndian.Uint64(data[n-8:])
+	case n >= 16:
+		a = binary.LittleEndian.Uint64(data)
+		c = binary.LittleEndian.Uint64(data[n-8:])
+	case n >= 8:
+		a = binary.LittleEndian.Uint64(data)
+		c = binary.LittleEndian.Uint64(data[n-8:])
+	default:
+		for i, value := range data {
+			a |= uint64(value) << (8 * i)
+		}
 	}
-	h ^= uint64(k.len) * 0x9e3779b185ebca87
-	return mix64(h)
+	h := a*0x9e3779b185ebca87 ^ bits.RotateLeft64(b, 21) ^ bits.RotateLeft64(c, 43)
+	return mix64(h ^ uint64(n)*0xd6e8feb86659fd93)
 }
 
 func mix64(x uint64) uint64 {
@@ -579,38 +606,6 @@ func mix64(x uint64) uint64 {
 	x *= 0x94d049bb133111eb
 	x ^= x >> 31
 	return x
-}
-
-func lessChannel(a, b *channelKey) bool {
-	n := int(a.len)
-	if int(b.len) < n {
-		n = int(b.len)
-	}
-	for i := 0; i < n; i++ {
-		ab := a.bytes[i]
-		bb := b.bytes[i]
-		if ab == bb {
-			continue
-		}
-		return ab < bb
-	}
-	return a.len < b.len
-}
-
-func loadChannelKey(data []byte) (channelKey, int) {
-	var key channelKey
-	i := 0
-	for ; i < len(data) && data[i] != ','; i++ {
-		if i < maxChannelPathLen {
-			key.bytes[i] = data[i]
-		}
-	}
-	key.len = uint8(i)
-	return key, i
-}
-
-func appendChannel(out []byte, k channelKey) []byte {
-	return append(out, k.bytes[:k.len]...)
 }
 
 func indexByte(data []byte, begin, end int, needle byte) int {
