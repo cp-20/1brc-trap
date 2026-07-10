@@ -13,6 +13,37 @@ sealed class ChannelStats
 
 sealed class Program
 {
+    static readonly long[] MonthStartUnix =
+    [
+        1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000,
+        1814400000, 1817078400, 1819756800, 1822348800, 1825027200, 1827619200,
+        1830297600,
+    ];
+
+    static readonly string[] MonthLabels =
+    [
+        "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+        "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12",
+    ];
+
+    static string ResultKey(string unixTimestamp, string channelPath)
+    {
+        var timestamp = long.Parse(unixTimestamp, CultureInfo.InvariantCulture);
+        return $"{channelPath},{MonthLabelFromUnixTimestamp(timestamp)}";
+    }
+
+    static string MonthLabelFromUnixTimestamp(long timestamp)
+    {
+        for (var i = MonthStartUnix.Length - 2; i >= 0; i--)
+        {
+            if (timestamp >= MonthStartUnix[i] && timestamp < MonthStartUnix[i + 1])
+            {
+                return MonthLabels[i];
+            }
+        }
+        throw new Exception($"unix_timestamp out of 2027 range: {timestamp}");
+    }
+
     static Options ParseArgs(string[] args)
     {
         var input = "";
@@ -46,7 +77,7 @@ sealed class Program
         {
             throw new Exception("failed to read CSV header");
         }
-        if (header.Split(',').Length != 6)
+        if (header.Split(',').Length != 4)
         {
             throw new Exception("invalid header");
         }
@@ -61,18 +92,18 @@ sealed class Program
             }
 
             var record = line.Split(',');
-            if (record.Length != 6)
+            if (record.Length != 4)
             {
                 throw new Exception($"invalid line {lineNumber}");
             }
 
-            var channelId = record[3];
-            var messageLength = int.Parse(record[4], CultureInfo.InvariantCulture);
-            var stampCount = int.Parse(record[5], CultureInfo.InvariantCulture);
+            var key = ResultKey(record[0], record[1]);
+            var messageLength = int.Parse(record[2], CultureInfo.InvariantCulture);
+            var stampCount = int.Parse(record[3], CultureInfo.InvariantCulture);
 
-            if (!stats.TryGetValue(channelId, out var current))
+            if (!stats.TryGetValue(key, out var current))
             {
-                stats[channelId] = new ChannelStats
+                stats[key] = new ChannelStats
                 {
                     MinLen = messageLength,
                     MaxLen = messageLength,
@@ -101,17 +132,17 @@ sealed class Program
 
     static void WriteResult(TextWriter output, Dictionary<string, ChannelStats> stats)
     {
-        var channelIds = stats.Keys.ToList();
-        channelIds.Sort(StringComparer.Ordinal);
+        var keys = stats.Keys.ToList();
+        keys.Sort(StringComparer.Ordinal);
 
-        foreach (var channelId in channelIds)
+        foreach (var key in keys)
         {
-            var s = stats[channelId];
+            var s = stats[key];
             var meanLen = (double)s.TotalLen / s.Messages;
             output.WriteLine(
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{channelId}={s.MinLen}/{meanLen:F2}/{s.MaxLen}/{s.Messages}/{s.Stamps}"
+                    $"{key}={s.MinLen}/{meanLen:F2}/{s.MaxLen}/{s.Messages}/{s.Stamps}"
                 )
             );
         }

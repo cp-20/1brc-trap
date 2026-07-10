@@ -13,6 +13,37 @@ const Options = struct {
     output: ?[]const u8 = null,
 };
 
+const month_start_unix = [_]i64{
+    1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000,
+    1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600,
+};
+
+const month_labels = [_][]const u8{
+    "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+    "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12",
+};
+
+fn makeKey(allocator: std.mem.Allocator, unix_timestamp: []const u8, channel_path: []const u8) ![]u8 {
+    const timestamp = try std.fmt.parseInt(i64, unix_timestamp, 10);
+    const month = try monthLabelFromUnixTimestamp(timestamp);
+    const key = try allocator.alloc(u8, channel_path.len + 1 + 7);
+    @memcpy(key[0..channel_path.len], channel_path);
+    key[channel_path.len] = ',';
+    @memcpy(key[channel_path.len + 1 ..], month);
+    return key;
+}
+
+fn monthLabelFromUnixTimestamp(timestamp: i64) ![]const u8 {
+    var i: usize = month_labels.len;
+    while (i > 0) {
+        i -= 1;
+        if (timestamp >= month_start_unix[i] and timestamp < month_start_unix[i + 1]) {
+            return month_labels[i];
+        }
+    }
+    return error.TimestampOutOfRange;
+}
+
 fn parseArgs(allocator: std.mem.Allocator) !Options {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
@@ -46,7 +77,7 @@ fn analyze(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.StringHash
     if (try reader.takeDelimiter('\n')) |header_raw| {
         line_number += 1;
         const header_line = std.mem.trimRight(u8, header_raw, "\r");
-        if (countFields(header_line) != 6) {
+        if (countFields(header_line) != 4) {
             return error.InvalidHeader;
         }
     } else {
@@ -60,16 +91,18 @@ fn analyze(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.StringHash
             continue;
         }
 
-        var fields: [6][]const u8 = undefined;
+        var fields: [4][]const u8 = undefined;
         if (!splitLine(line, &fields)) {
             return error.InvalidLine;
         }
 
-        const channel_id = fields[3];
-        const message_length = try std.fmt.parseInt(i64, fields[4], 10);
-        const stamp_count = try std.fmt.parseInt(i64, fields[5], 10);
+        const key = try makeKey(allocator, fields[0], fields[1]);
+        errdefer allocator.free(key);
+        const message_length = try std.fmt.parseInt(i64, fields[2], 10);
+        const stamp_count = try std.fmt.parseInt(i64, fields[3], 10);
 
-        if (stats.getPtr(channel_id)) |current| {
+        if (stats.getPtr(key)) |current| {
+            allocator.free(key);
             if (message_length < current.min_len) {
                 current.min_len = message_length;
             }
@@ -80,8 +113,7 @@ fn analyze(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.StringHash
             current.messages += 1;
             current.stamps += stamp_count;
         } else {
-            const owned_key = try allocator.dupe(u8, channel_id);
-            try stats.put(owned_key, ChannelStats{
+            try stats.put(key, ChannelStats{
                 .min_len = message_length,
                 .max_len = message_length,
                 .total_len = message_length,
@@ -104,7 +136,7 @@ fn countFields(line: []const u8) usize {
     return count;
 }
 
-fn splitLine(line: []const u8, fields: *[6][]const u8) bool {
+fn splitLine(line: []const u8, fields: *[4][]const u8) bool {
     var it = std.mem.splitScalar(u8, line, ',');
     var i: usize = 0;
     while (it.next()) |field| {
@@ -122,19 +154,19 @@ fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
 }
 
 fn writeResult(allocator: std.mem.Allocator, writer: *std.Io.Writer, stats: *std.StringHashMap(ChannelStats)) !void {
-    var channel_ids = std.ArrayList([]const u8).empty;
-    defer channel_ids.deinit(allocator);
+    var keys = std.ArrayList([]const u8).empty;
+    defer keys.deinit(allocator);
 
     var it = stats.keyIterator();
     while (it.next()) |key| {
-        try channel_ids.append(allocator, key.*);
+        try keys.append(allocator, key.*);
     }
-    std.mem.sort([]const u8, channel_ids.items, {}, stringLessThan);
+    std.mem.sort([]const u8, keys.items, {}, stringLessThan);
 
-    for (channel_ids.items) |channel_id| {
-        const s = stats.get(channel_id).?;
+    for (keys.items) |key| {
+        const s = stats.get(key).?;
         const mean_len = @as(f64, @floatFromInt(s.total_len)) / @as(f64, @floatFromInt(s.messages));
-        try writer.print("{s}={d}/", .{ channel_id, s.min_len });
+        try writer.print("{s}={d}/", .{ key, s.min_len });
         try writeFixed2(writer, mean_len);
         try writer.print("/{d}/{d}/{d}\n", .{ s.max_len, s.messages, s.stamps });
     }

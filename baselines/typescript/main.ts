@@ -14,6 +14,33 @@ type Options = {
   output: string;
 };
 
+const monthStartUnix = [
+  1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000,
+  1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600,
+];
+
+const monthLabels = [
+  "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+  "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12",
+];
+
+function resultKey(unixTimestamp: string, channelPath: string): string {
+  const timestamp = Number.parseInt(unixTimestamp, 10);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`invalid unix_timestamp: ${unixTimestamp}`);
+  }
+  return `${channelPath},${monthLabelFromUnixTimestamp(timestamp)}`;
+}
+
+function monthLabelFromUnixTimestamp(timestamp: number): string {
+  for (let i = monthLabels.length - 1; i >= 0; i--) {
+    if (timestamp >= monthStartUnix[i] && timestamp < monthStartUnix[i + 1]) {
+      return monthLabels[i];
+    }
+  }
+  throw new Error(`unix_timestamp out of 2027 range: ${timestamp}`);
+}
+
 function parseArgs(args: string[]): Options {
   const options: Options = { input: "", output: "" };
   for (let i = 0; i < args.length; i++) {
@@ -37,8 +64,8 @@ async function analyze(input: NodeJS.ReadableStream): Promise<Map<string, Channe
     lineNumber++;
     if (lineNumber === 1) {
       const header = line.split(",");
-      if (header.length !== 6) {
-        throw new Error(`invalid header: expected 6 columns, got ${header.length}`);
+      if (header.length !== 4) {
+        throw new Error(`invalid header: expected 4 columns, got ${header.length}`);
       }
       continue;
     }
@@ -47,13 +74,13 @@ async function analyze(input: NodeJS.ReadableStream): Promise<Map<string, Channe
     }
 
     const record = line.split(",");
-    if (record.length !== 6) {
-      throw new Error(`invalid line ${lineNumber}: expected 6 columns, got ${record.length}`);
+    if (record.length !== 4) {
+      throw new Error(`invalid line ${lineNumber}: expected 4 columns, got ${record.length}`);
     }
 
-    const channelID = record[3];
-    const messageLength = Number.parseInt(record[4], 10);
-    const stampCount = Number.parseInt(record[5], 10);
+    const key = resultKey(record[0], record[1]);
+    const messageLength = Number.parseInt(record[2], 10);
+    const stampCount = Number.parseInt(record[3], 10);
     if (!Number.isFinite(messageLength)) {
       throw new Error(`invalid message_length on line ${lineNumber}`);
     }
@@ -61,9 +88,9 @@ async function analyze(input: NodeJS.ReadableStream): Promise<Map<string, Channe
       throw new Error(`invalid stamp_count on line ${lineNumber}`);
     }
 
-    const existing = stats.get(channelID);
+    const existing = stats.get(key);
     if (existing === undefined) {
-      stats.set(channelID, {
+      stats.set(key, {
         minLen: messageLength,
         maxLen: messageLength,
         totalLen: messageLength,
@@ -83,11 +110,11 @@ async function analyze(input: NodeJS.ReadableStream): Promise<Map<string, Channe
 }
 
 function writeResult(output: NodeJS.WritableStream, stats: Map<string, ChannelStats>): void {
-  const channelIDs = Array.from(stats.keys()).sort();
-  for (const channelID of channelIDs) {
-    const s = stats.get(channelID)!;
+  const keys = Array.from(stats.keys()).sort();
+  for (const key of keys) {
+    const s = stats.get(key)!;
     const meanLen = s.totalLen / s.messages;
-    output.write(`${channelID}=${s.minLen}/${formatFixed2(meanLen)}/${s.maxLen}/${s.messages}/${s.stamps}\n`);
+    output.write(`${key}=${s.minLen}/${formatFixed2(meanLen)}/${s.maxLen}/${s.messages}/${s.stamps}\n`);
   }
 }
 

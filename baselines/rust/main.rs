@@ -16,6 +16,33 @@ struct Options {
     output: String,
 }
 
+const MONTH_START_UNIX: [i64; 13] = [
+    1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000,
+    1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600,
+];
+
+const MONTH_LABELS: [&str; 12] = [
+    "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07",
+    "2027-08", "2027-09", "2027-10", "2027-11", "2027-12",
+];
+
+fn result_key(unix_timestamp: &str, channel_path: &str) -> Result<String, String> {
+    let timestamp: i64 = unix_timestamp
+        .parse()
+        .map_err(|e| format!("invalid unix_timestamp: {}", e))?;
+    let month = month_label_from_unix_timestamp(timestamp)?;
+    Ok(format!("{},{}", channel_path, month))
+}
+
+fn month_label_from_unix_timestamp(timestamp: i64) -> Result<&'static str, String> {
+    for i in (0..MONTH_LABELS.len()).rev() {
+        if timestamp >= MONTH_START_UNIX[i] && timestamp < MONTH_START_UNIX[i + 1] {
+            return Ok(MONTH_LABELS[i]);
+        }
+    }
+    Err(format!("unix_timestamp out of 2027 range: {}", timestamp))
+}
+
 fn parse_args() -> Result<Options, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut options = Options {
@@ -46,8 +73,8 @@ fn analyze(reader: Box<dyn BufRead>) -> Result<HashMap<String, ChannelStats>, St
         let line = line_result.map_err(|e| format!("failed to read line {}: {}", line_number, e))?;
         if line_number == 1 {
             let header: Vec<&str> = line.split(',').collect();
-            if header.len() != 6 {
-                return Err(format!("invalid header: expected 6 columns, got {}", header.len()));
+            if header.len() != 4 {
+                return Err(format!("invalid header: expected 4 columns, got {}", header.len()));
             }
             continue;
         }
@@ -56,19 +83,19 @@ fn analyze(reader: Box<dyn BufRead>) -> Result<HashMap<String, ChannelStats>, St
         }
 
         let record: Vec<&str> = line.split(',').collect();
-        if record.len() != 6 {
-            return Err(format!("invalid line {}: expected 6 columns, got {}", line_number, record.len()));
+        if record.len() != 4 {
+            return Err(format!("invalid line {}: expected 4 columns, got {}", line_number, record.len()));
         }
 
-        let channel_id = record[3];
-        let message_length: i64 = record[4]
+        let key = result_key(record[0], record[1]).map_err(|e| format!("invalid key on line {}: {}", line_number, e))?;
+        let message_length: i64 = record[2]
             .parse()
             .map_err(|e| format!("invalid message_length on line {}: {}", line_number, e))?;
-        let stamp_count: i64 = record[5]
+        let stamp_count: i64 = record[3]
             .parse()
             .map_err(|e| format!("invalid stamp_count on line {}: {}", line_number, e))?;
 
-        match stats.get_mut(channel_id) {
+        match stats.get_mut(&key) {
             Some(current) => {
                 if message_length < current.min_len {
                     current.min_len = message_length;
@@ -82,7 +109,7 @@ fn analyze(reader: Box<dyn BufRead>) -> Result<HashMap<String, ChannelStats>, St
             }
             None => {
                 stats.insert(
-                    channel_id.to_string(),
+                    key,
                     ChannelStats {
                         min_len: message_length,
                         max_len: message_length,
@@ -99,16 +126,16 @@ fn analyze(reader: Box<dyn BufRead>) -> Result<HashMap<String, ChannelStats>, St
 }
 
 fn write_result(writer: &mut dyn Write, stats: &HashMap<String, ChannelStats>) -> io::Result<()> {
-    let mut channel_ids: Vec<&String> = stats.keys().collect();
-    channel_ids.sort();
+    let mut keys: Vec<&String> = stats.keys().collect();
+    keys.sort();
 
-    for channel_id in channel_ids {
-        let s = stats.get(channel_id).unwrap();
+    for key in keys {
+        let s = stats.get(key).unwrap();
         let mean_len = s.total_len as f64 / s.messages as f64;
         writeln!(
             writer,
             "{}={}/{:.2}/{}/{}/{}",
-            channel_id, s.min_len, mean_len, s.max_len, s.messages, s.stamps
+            key, s.min_len, mean_len, s.max_len, s.messages, s.stamps
         )?;
     }
     Ok(())

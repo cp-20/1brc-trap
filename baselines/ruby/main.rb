@@ -3,6 +3,28 @@
 
 Stats = Struct.new(:min_len, :max_len, :total_len, :messages, :stamps)
 
+MONTH_START_UNIX = [
+  1_798_761_600, 1_801_440_000, 1_803_859_200, 1_806_537_600, 1_809_129_600,
+  1_811_808_000, 1_814_400_000, 1_817_078_400, 1_819_756_800, 1_822_348_800,
+  1_825_027_200, 1_827_619_200, 1_830_297_600
+].freeze
+
+MONTH_LABELS = [
+  "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+  "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"
+].freeze
+
+def result_key(unix_timestamp, channel_path)
+  "#{channel_path},#{month_label_from_unix_timestamp(Integer(unix_timestamp))}"
+end
+
+def month_label_from_unix_timestamp(timestamp)
+  (MONTH_LABELS.length - 1).downto(0) do |i|
+    return MONTH_LABELS[i] if timestamp >= MONTH_START_UNIX[i] && timestamp < MONTH_START_UNIX[i + 1]
+  end
+  raise "unix_timestamp out of 2027 range: #{timestamp}"
+end
+
 def parse_args(args)
   options = { input: nil, output: nil }
   i = 0
@@ -34,22 +56,22 @@ def analyze(input)
     line = line.chomp
     if line_number == 1
       header = line.split(",", -1)
-      raise "invalid header: expected 6 columns, got #{header.length}" unless header.length == 6
+      raise "invalid header: expected 4 columns, got #{header.length}" unless header.length == 4
 
       next
     end
     next if line.empty?
 
     record = line.split(",", -1)
-    raise "invalid line #{line_number}: expected 6 columns, got #{record.length}" unless record.length == 6
+    raise "invalid line #{line_number}: expected 4 columns, got #{record.length}" unless record.length == 4
 
-    channel_id = record[3]
-    message_length = Integer(record[4])
-    stamp_count = Integer(record[5])
+    key = result_key(record[0], record[1])
+    message_length = Integer(record[2])
+    stamp_count = Integer(record[3])
 
-    current = stats[channel_id]
+    current = stats[key]
     if current.nil?
-      stats[channel_id] = Stats.new(message_length, message_length, message_length, 1, stamp_count)
+      stats[key] = Stats.new(message_length, message_length, message_length, 1, stamp_count)
     else
       current.min_len = message_length if message_length < current.min_len
       current.max_len = message_length if message_length > current.max_len
@@ -62,10 +84,10 @@ def analyze(input)
 end
 
 def write_result(output, stats)
-  stats.keys.sort.each do |channel_id|
-    s = stats[channel_id]
+  stats.keys.sort.each do |key|
+    s = stats[key]
     mean_len = s.total_len.to_f / s.messages
-    output.printf("%s=%d/%s/%d/%d/%d\n", channel_id, s.min_len, format_fixed2(mean_len), s.max_len, s.messages, s.stamps)
+    output.printf("%s=%d/%s/%d/%d/%d\n", key, s.min_len, format_fixed2(mean_len), s.max_len, s.messages, s.stamps)
   end
 end
 

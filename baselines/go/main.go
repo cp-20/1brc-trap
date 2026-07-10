@@ -18,6 +18,58 @@ type channelStats struct {
 	stamps   int64
 }
 
+var monthLabels = [12]string{
+	"2027-01",
+	"2027-02",
+	"2027-03",
+	"2027-04",
+	"2027-05",
+	"2027-06",
+	"2027-07",
+	"2027-08",
+	"2027-09",
+	"2027-10",
+	"2027-11",
+	"2027-12",
+}
+
+var monthStartUnix = [13]int64{
+	1798761600,
+	1801440000,
+	1803859200,
+	1806537600,
+	1809129600,
+	1811808000,
+	1814400000,
+	1817078400,
+	1819756800,
+	1822348800,
+	1825027200,
+	1827619200,
+	1830297600,
+}
+
+func resultKey(unixTimestamp, channelPath string) (string, error) {
+	timestamp, err := strconv.ParseInt(unixTimestamp, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid unix_timestamp: %q", unixTimestamp)
+	}
+	month, err := monthLabelFromUnixTimestamp(timestamp)
+	if err != nil {
+		return "", err
+	}
+	return channelPath + "," + month, nil
+}
+
+func monthLabelFromUnixTimestamp(timestamp int64) (string, error) {
+	for i := len(monthStartUnix) - 2; i >= 0; i-- {
+		if timestamp >= monthStartUnix[i] && timestamp < monthStartUnix[i+1] {
+			return monthLabels[i], nil
+		}
+	}
+	return "", fmt.Errorf("unix_timestamp out of 2027 range: %d", timestamp)
+}
+
 func main() {
 	input := flag.String("i", "", "input CSV file path; default is stdin")
 	output := flag.String("o", "", "output file path; default is stdout")
@@ -51,8 +103,8 @@ func analyze(r io.Reader) (map[string]*channelStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CSV header: %w", err)
 	}
-	if len(header) != 6 {
-		return nil, fmt.Errorf("invalid header: expected 6 columns, got %d", len(header))
+	if len(header) != 4 {
+		return nil, fmt.Errorf("invalid header: expected 4 columns, got %d", len(header))
 	}
 
 	stats := make(map[string]*channelStats)
@@ -66,23 +118,26 @@ func analyze(r io.Reader) (map[string]*channelStats, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read line %d: %w", lineNumber, err)
 		}
-		if len(record) != 6 {
-			return nil, fmt.Errorf("invalid line %d: expected 6 columns, got %d", lineNumber, len(record))
+		if len(record) != 4 {
+			return nil, fmt.Errorf("invalid line %d: expected 4 columns, got %d", lineNumber, len(record))
 		}
 
-		channelID := record[3]
-		messageLength, err := strconv.Atoi(record[4])
+		key, err := resultKey(record[0], record[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid key on line %d: %w", lineNumber, err)
+		}
+		messageLength, err := strconv.Atoi(record[2])
 		if err != nil {
 			return nil, fmt.Errorf("invalid message_length on line %d: %w", lineNumber, err)
 		}
-		stampCount, err := strconv.Atoi(record[5])
+		stampCount, err := strconv.Atoi(record[3])
 		if err != nil {
 			return nil, fmt.Errorf("invalid stamp_count on line %d: %w", lineNumber, err)
 		}
 
-		s, ok := stats[channelID]
+		s, ok := stats[key]
 		if !ok {
-			stats[channelID] = &channelStats{
+			stats[key] = &channelStats{
 				minLen:   messageLength,
 				maxLen:   messageLength,
 				totalLen: int64(messageLength),
@@ -107,19 +162,19 @@ func analyze(r io.Reader) (map[string]*channelStats, error) {
 }
 
 func writeResult(w io.Writer, stats map[string]*channelStats) error {
-	channelIDs := make([]string, 0, len(stats))
-	for channelID := range stats {
-		channelIDs = append(channelIDs, channelID)
+	keys := make([]string, 0, len(stats))
+	for key := range stats {
+		keys = append(keys, key)
 	}
-	sort.Strings(channelIDs)
+	sort.Strings(keys)
 
-	for _, channelID := range channelIDs {
-		s := stats[channelID]
+	for _, key := range keys {
+		s := stats[key]
 		meanLen := float64(s.totalLen) / float64(s.messages)
 		if _, err := fmt.Fprintf(
 			w,
 			"%s=%d/%.2f/%d/%d/%d\n",
-			channelID,
+			key,
 			s.minLen,
 			meanLen,
 			s.maxLen,

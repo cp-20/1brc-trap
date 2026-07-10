@@ -19,6 +19,17 @@ typedef struct {
   size_t count;
 } Map;
 
+static const long long month_start_unix[] = {
+    1798761600LL, 1801440000LL, 1803859200LL, 1806537600LL, 1809129600LL,
+    1811808000LL, 1814400000LL, 1817078400LL, 1819756800LL, 1822348800LL,
+    1825027200LL, 1827619200LL, 1830297600LL,
+};
+
+static const char *month_labels[] = {
+    "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+    "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12",
+};
+
 static unsigned long hash_string(const char *s) {
   unsigned long h = 1469598103934665603UL;
   while (*s) {
@@ -37,6 +48,31 @@ static char *copy_string(const char *s) {
   }
   memcpy(copy, s, len + 1);
   return copy;
+}
+
+static const char *month_label_from_unix_timestamp(long long timestamp) {
+  for (int i = 11; i >= 0; i--) {
+    if (timestamp >= month_start_unix[i] && timestamp < month_start_unix[i + 1]) {
+      return month_labels[i];
+    }
+  }
+  fprintf(stderr, "unix_timestamp out of 2027 range\n");
+  exit(1);
+}
+
+static char *make_key(const char *unix_timestamp, const char *channel_path) {
+  const char *month = month_label_from_unix_timestamp(atoll(unix_timestamp));
+  size_t channel_len = strlen(channel_path);
+  char *key = (char *)malloc(channel_len + 1 + 7 + 1);
+  if (key == NULL) {
+    fprintf(stderr, "out of memory\n");
+    exit(1);
+  }
+  memcpy(key, channel_path, channel_len);
+  key[channel_len] = ',';
+  memcpy(key + channel_len + 1, month, 7);
+  key[channel_len + 8] = '\0';
+  return key;
 }
 
 static void map_init(Map *map) {
@@ -138,7 +174,7 @@ static int split_line(char *line, char **fields, int max_fields) {
 
 static void analyze(FILE *input, Map *map) {
   char line[4096];
-  char *fields[6];
+  char *fields[4];
   long long line_number = 0;
 
   if (fgets(line, sizeof(line), input) == NULL) {
@@ -146,7 +182,7 @@ static void analyze(FILE *input, Map *map) {
     exit(1);
   }
   line_number++;
-  if (split_line(line, fields, 6) != 6) {
+  if (split_line(line, fields, 4) != 4) {
     fprintf(stderr, "invalid header\n");
     exit(1);
   }
@@ -156,15 +192,17 @@ static void analyze(FILE *input, Map *map) {
     if (line[0] == '\n' || line[0] == '\r' || line[0] == '\0') {
       continue;
     }
-    if (split_line(line, fields, 6) != 6) {
+    if (split_line(line, fields, 4) != 4) {
       fprintf(stderr, "invalid line %lld\n", line_number);
       exit(1);
     }
 
-    int message_length = atoi(fields[4]);
-    int stamp_count = atoi(fields[5]);
+    char *key = make_key(fields[0], fields[1]);
+    int message_length = atoi(fields[2]);
+    int stamp_count = atoi(fields[3]);
     int inserted = 0;
-    Entry *entry = map_get_or_insert(map, fields[3], message_length, stamp_count, &inserted);
+    Entry *entry = map_get_or_insert(map, key, message_length, stamp_count, &inserted);
+    free(key);
     if (inserted) {
       continue;
     }

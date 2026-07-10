@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -17,8 +16,8 @@ import (
 const (
 	defaultRows       = 10_000_000
 	defaultChannels   = 10_000
-	defaultUsers      = 1_000
 	defaultBufferSize = 4 * 1024 * 1024
+	maxChannelDepth   = 5
 )
 
 type dayWeight struct {
@@ -27,16 +26,12 @@ type dayWeight struct {
 }
 
 type channelProfile struct {
-	id            string
-	ownerUser     int
-	ownerShare    float64
-	secondaryBias float64
+	path string
 }
 
 func main() {
 	rows := flag.Int("n", defaultRows, "number of messages to generate")
 	channelCount := flag.Int("channels", defaultChannels, "number of distinct channels")
-	userCount := flag.Int("users", defaultUsers, "number of distinct users")
 	output := flag.String("o", "", "output file path; default is stdout")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "random seed")
 	bufferSize := flag.Int("buffer", defaultBufferSize, "output buffer size in bytes")
@@ -47,9 +42,6 @@ func main() {
 	}
 	if *channelCount <= 0 {
 		exit("channels must be greater than 0")
-	}
-	if *userCount <= 0 {
-		exit("users must be greater than 0")
 	}
 	if *bufferSize <= 0 {
 		exit("buffer must be greater than 0")
@@ -62,7 +54,7 @@ func main() {
 	defer closeWriter()
 
 	r := rand.New(rand.NewSource(*seed))
-	g := newGenerator(r, *channelCount, *userCount)
+	g := newGenerator(r, *channelCount)
 	if err := g.write(writer, *rows, *bufferSize); err != nil {
 		exit(err.Error())
 	}
@@ -75,34 +67,16 @@ type generator struct {
 	dayTotal    float64
 	hourTotals  []float64
 	hourTotal   float64
-	users       []string
 	channels    []channelProfile
 	channelZipf *rand.Zipf
-	userZipf    *rand.Zipf
 }
 
-func newGenerator(r *rand.Rand, channelCount, userCount int) *generator {
-	users := make([]string, userCount)
-	for i := range users {
-		users[i] = newUUID(r)
-	}
-
-	userZipf := rand.NewZipf(r, 1.18, 1, uint64(userCount-1))
+func newGenerator(r *rand.Rand, channelCount int) *generator {
+	paths := buildChannelPaths(channelCount)
 	channels := make([]channelProfile, channelCount)
 	for i := range channels {
-		mode := r.Float64()
-		ownerShare := 0.10 + r.Float64()*0.18
-		if mode < 0.12 {
-			ownerShare = 0.86 + r.Float64()*0.10
-		} else if mode < 0.45 {
-			ownerShare = 0.45 + r.Float64()*0.25
-		}
-
 		channels[i] = channelProfile{
-			id:            newUUID(r),
-			ownerUser:     int(userZipf.Uint64()),
-			ownerShare:    ownerShare,
-			secondaryBias: 1.0 + r.Float64()*1.5,
+			path: paths[i],
 		}
 	}
 
@@ -116,20 +90,18 @@ func newGenerator(r *rand.Rand, channelCount, userCount int) *generator {
 		dayTotal:    dayTotal,
 		hourTotals:  hourTotals,
 		hourTotal:   hourTotal,
-		users:       users,
 		channels:    channels,
 		channelZipf: rand.NewZipf(r, 1.09, 1, uint64(channelCount-1)),
-		userZipf:    userZipf,
 	}
 }
 
 func (g *generator) write(w io.Writer, rows, bufferSize int) error {
 	buffered := bufio.NewWriterSize(w, bufferSize)
-	if _, err := buffered.WriteString("iso_timestamp,message_id,user_id,channel_id,message_length,stamp_count\n"); err != nil {
+	if _, err := buffered.WriteString("unix_timestamp,channel_path,message_length,stamp_count\n"); err != nil {
 		return err
 	}
 
-	line := make([]byte, 0, 192)
+	line := make([]byte, 0, 96)
 	for i := 0; i < rows; i++ {
 		line = g.appendRow(line[:0])
 		if _, err := buffered.Write(line); err != nil {
@@ -142,15 +114,10 @@ func (g *generator) write(w io.Writer, rows, bufferSize int) error {
 
 func (g *generator) appendRow(line []byte) []byte {
 	channel := &g.channels[g.channelZipf.Uint64()]
-	userID := g.pickUser(channel)
 
-	line = g.pickTimestamp().AppendFormat(line, "2006-01-02T15:04:05.000Z")
+	line = strconv.AppendInt(line, g.pickTimestamp().Unix(), 10)
 	line = append(line, ',')
-	line = append(line, newUUID(g.r)...)
-	line = append(line, ',')
-	line = append(line, userID...)
-	line = append(line, ',')
-	line = append(line, channel.id...)
+	line = append(line, channel.path...)
 	line = append(line, ',')
 	line = strconv.AppendInt(line, int64(g.pickMessageLength()), 10)
 	line = append(line, ',')
@@ -169,19 +136,6 @@ func (g *generator) pickTimestamp() time.Time {
 		time.Duration(minute)*time.Minute +
 		time.Duration(second)*time.Second +
 		time.Duration(millisecond)*time.Millisecond)
-}
-
-func (g *generator) pickUser(channel *channelProfile) string {
-	if g.r.Float64() < channel.ownerShare {
-		return g.users[channel.ownerUser]
-	}
-
-	if g.r.Float64() < channel.secondaryBias/(channel.secondaryBias+4.0) {
-		offset := g.r.Intn(30)
-		return g.users[(channel.ownerUser+offset)%len(g.users)]
-	}
-
-	return g.users[g.userZipf.Uint64()]
 }
 
 func (g *generator) pickMessageLength() int {
@@ -323,31 +277,6 @@ func geometric(r *rand.Rand, stopProbability float64) int {
 	return count
 }
 
-func newUUID(r *rand.Rand) string {
-	var b [16]byte
-	for i := 0; i < len(b); i += 8 {
-		v := r.Uint64()
-		for j := 0; j < 8; j++ {
-			b[i+j] = byte(v >> (56 - 8*j))
-		}
-	}
-
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-
-	var dst [36]byte
-	hex.Encode(dst[0:8], b[0:4])
-	dst[8] = '-'
-	hex.Encode(dst[9:13], b[4:6])
-	dst[13] = '-'
-	hex.Encode(dst[14:18], b[6:8])
-	dst[18] = '-'
-	hex.Encode(dst[19:23], b[8:10])
-	dst[23] = '-'
-	hex.Encode(dst[24:36], b[10:16])
-	return string(dst[:])
-}
-
 func openWriter(path string) (io.Writer, func(), error) {
 	if path == "" {
 		return os.Stdout, func() {}, nil
@@ -366,4 +295,86 @@ func openWriter(path string) (io.Writer, func(), error) {
 func exit(message string) {
 	fmt.Fprintln(os.Stderr, message)
 	os.Exit(1)
+}
+
+func buildChannelPaths(count int) []string {
+	words := [...][]string{
+		{"team", "project", "club", "lab", "class", "event", "help", "bot", "game", "music", "art", "book", "photo", "video", "news", "data", "infra", "design", "staff", "admin", "sales", "ops", "home", "work"},
+		{"core", "dev", "web", "app", "api", "mobile", "server", "client", "data", "search", "auth", "chat", "voice", "image", "build", "test", "docs", "plan", "meet", "room", "topic", "note", "task", "release", "support", "random", "social", "media", "study", "learn", "write", "read"},
+		{"main", "alpha", "beta", "green", "blue", "red", "gold", "fast", "slow", "daily", "weekly", "night", "idea", "bug", "fix", "review", "deploy", "log", "alert", "queue", "cache", "store", "index", "job", "skill", "tool", "link", "feed", "draft", "memo", "board", "map"},
+		{"open", "close", "new", "old", "hot", "cold", "north", "south", "east", "west", "local", "global", "public", "private", "small", "large", "light", "dark", "early", "late", "first", "last", "next", "back", "front", "inner", "outer", "quiet", "active", "ready", "live", "safe"},
+		{"inbox", "outbox", "todo", "done", "wait", "hold", "sync", "async", "push", "pull", "send", "recv", "read", "write", "edit", "view", "watch", "build", "ship", "run", "test", "check", "note", "memo", "list", "grid", "feed", "chat", "voice", "call", "desk", "room"},
+	}
+
+	paths := make([]string, 0, count)
+	targets := depthTargets(count, words[:])
+	for depth, target := range targets {
+		for i := 0; i < target; i++ {
+			paths = append(paths, channelPathForIndex(words[:], depth+1, i))
+		}
+	}
+	return paths
+}
+
+func depthTargets(count int, words [][]string) [maxChannelDepth]int {
+	weights := [maxChannelDepth]int{2, 12, 34, 32, 20}
+	var targets [maxChannelDepth]int
+	remaining := count
+	for depth := range targets {
+		target := count * weights[depth] / 100
+		if target == 0 && remaining > 0 {
+			target = 1
+		}
+		capacity := depthCapacity(words, depth+1)
+		if target > capacity {
+			target = capacity
+		}
+		targets[depth] = target
+		remaining -= target
+	}
+	for remaining > 0 {
+		added := false
+		for depth := maxChannelDepth - 1; depth >= 0 && remaining > 0; depth-- {
+			if targets[depth] >= depthCapacity(words, depth+1) {
+				continue
+			}
+			targets[depth]++
+			remaining--
+			added = true
+		}
+		if !added {
+			exit("channel count exceeds channel path capacity")
+		}
+	}
+	return targets
+}
+
+func depthCapacity(words [][]string, depth int) int {
+	capacity := 1
+	for i := 0; i < depth; i++ {
+		capacity *= len(words[i])
+	}
+	return capacity
+}
+
+func channelPathForIndex(words [][]string, depth, index int) string {
+	parts := make([]string, depth)
+	for i := 0; i < depth; i++ {
+		levelWords := words[i]
+		parts[i] = levelWords[index%len(levelWords)]
+		index /= len(levelWords)
+	}
+
+	length := depth - 1
+	for _, part := range parts {
+		length += len(part)
+	}
+	out := make([]byte, 0, length)
+	for i, part := range parts {
+		if i > 0 {
+			out = append(out, '/')
+		}
+		out = append(out, part...)
+	}
+	return string(out)
 }

@@ -11,6 +11,7 @@ baselines/c/traq_baseline_c
 baselines/cpp/traq_baseline_cpp
 baselines/rust/traq_baseline_rust
 baselines/zig/traq_baseline_zig
+optimized/cpp/traq_optimized_cpp
 
 # .NET build outputs
 bin/
