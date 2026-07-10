@@ -42,6 +42,9 @@ function monthLabelFromUnixTimestamp(timestamp: number): string {
 }
 
 function parseArgs(args: string[]): Options {
+  if (args.length === 2 && !args[0].startsWith("-") && !args[1].startsWith("-")) {
+    return { input: args[0], output: args[1] };
+  }
   const options: Options = { input: "", output: "" };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-i" && i + 1 < args.length) {

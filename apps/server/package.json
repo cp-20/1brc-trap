@@ -1,0 +1,41 @@
+{
+  "name": "@1brc/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/app.ts",
+      "default": "./src/app.ts"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "worker": "node dist/worker.js",
+    "db:migrate": "tsx src/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@1brc/contracts": "workspace:*",
+    "@aws-sdk/client-s3": "^3.840.0",
+    "@aws-sdk/s3-request-presigner": "^3.840.0",
+    "@hono/node-server": "^1.14.4",
+    "@hono/zod-validator": "^0.7.0",
+    "busboy": "^1.6.0",
+    "hono": "^4.8.4",
+    "mysql2": "^3.14.1",
+    "neverthrow": "^8.2.0",
+    "ssh2": "^1.16.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/ssh2": "^1.15.5",
+    "tsx": "^4.20.3",
+    "vitest": "^3.2.4"
+  }
+}

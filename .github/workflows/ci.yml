@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.0"
+          cache: true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm --filter @1brc/cdk synth -c allowedSshCidr=203.0.113.10/32 -c keyPairName=onebrc-ci >/dev/null
+      - run: go test ./...
+      - run: docker compose config --quiet
+      - run: pipx install ansible-core
+      - run: ansible-playbook --syntax-check -i infra/ansible/inventory.example.yml infra/ansible/playbook.yml
+
+  compose-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONTEST_START_AT: "2020-01-01T00:00:00.000Z"
+      CONTEST_END_AT: "2100-01-01T00:00:00.000Z"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.0"
+          cache: true
+      - name: Generate Go-only fixtures
+        run: >-
+          go run ./cmd/contest_data generate
+          --contest-id 1brc-trap-local
+          --output data/contest
+          --runner-dir data/local
+          --public-rows 1000
+          --private-rows 1000
+          --tiers 100,1000
+          --threads 2
+          --revision ci
+      - name: Start MariaDB, RustFS and benchmark host
+        run: docker compose up -d --build mariadb rustfs rustfs-init benchmark-host
+      - name: Upload fixtures to RustFS
+        run: >-
+          go run ./cmd/contest_data upload
+          --manifest data/contest/manifest.json
+          --endpoint http://localhost:9000
+          --bucket onebrc-datasets
+          --access-key rustfsadmin
+          --secret-key rustfsadmin
+          --create-bucket
+      - name: Start application and wait for runner
+        run: |
+          docker compose up -d --build
+          timeout 600 sh -c 'until docker compose logs benchmark-host | grep -q "Server listening"; do sleep 2; done'
+          timeout 180 sh -c 'until curl -fsS http://localhost:8080/api/v1/healthz >/dev/null; do sleep 2; done'
+      - name: Import manifest and submit with an access key
+        run: |
+          curl -fsS -c /tmp/onebrc-cookie -o /dev/null 'http://localhost:8080/_oauth/login?redirect=/'
+          curl -fsS -b /tmp/onebrc-cookie -H 'Origin: http://localhost:8080' -H 'Content-Type: application/json' --data-binary @data/contest/manifest.json http://localhost:8080/api/v1/admin/datasets/import
+          key=$(curl -fsS -b /tmp/onebrc-cookie -H 'Origin: http://localhost:8080' -X POST http://localhost:8080/api/v1/access-key | jq -r .accessKey)
+          response=$(curl -fsS -H "Authorization: Bearer $key" -F executionKind=typescript -F source=@baselines/typescript/main.ts http://localhost:8080/api/v1/submissions)
+          id=$(printf '%s' "$response" | jq -r .id)
+          for attempt in $(seq 1 90); do
+            state=$(curl -fsS -H "Authorization: Bearer $key" "http://localhost:8080/api/v1/submissions/$id")
+            status=$(printf '%s' "$state" | jq -r .submission.status)
+            [ "$status" = completed ] && break
+            [ "$status" = infrastructure_error ] && { printf '%s\n' "$state"; exit 1; }
+            sleep 2
+          done
+          test "$(printf '%s' "$state" | jq -r .submission.public.verdict)" = accepted
+          test "$(docker compose exec -T mariadb mariadb -N -uonebrc -ponebrc onebrc -e "SELECT COUNT(*) FROM benchmark_runs WHERE submission_id='$id' AND verdict='accepted'")" = 6
+          curl -fsSL http://localhost:8080/api/v1/datasets/public-100/input/download -o /tmp/public.zst
+          test "$(sha256sum /tmp/public.zst | cut -d' ' -f1)" = "$(jq -r '.artifacts[] | select(.id == "public-100-input") | .compressedSha256' data/contest/manifest.json)"
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop Compose
+        if: always()
+        run: docker compose down -v

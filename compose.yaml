@@ -1,0 +1,181 @@
+name: onebrc-trap
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  APP_ORIGIN: http://localhost:8080
+  CONTEST_ID: 1brc-trap-local
+  CONTEST_START_AT: ${CONTEST_START_AT:-2026-01-01T00:00:00.000Z}
+  CONTEST_END_AT: ${CONTEST_END_AT:-2027-12-31T23:59:59.999Z}
+  ADMIN_USERS: cp20
+  TRUST_PROXY_HEADER: "true"
+  NS_MARIADB_DATABASE: ${NS_MARIADB_DATABASE:-onebrc}
+  NS_MARIADB_HOSTNAME: ${NS_MARIADB_HOSTNAME:-mariadb}
+  NS_MARIADB_PASSWORD: ${NS_MARIADB_PASSWORD:-onebrc}
+  NS_MARIADB_PORT: ${NS_MARIADB_PORT:-3306}
+  NS_MARIADB_USER: ${NS_MARIADB_USER:-onebrc}
+  R2_ACCOUNT_ID: local
+  R2_BUCKET_NAME: onebrc-datasets
+  R2_ACCESS_KEY_ID: ${R2_API_ACCESS_KEY_ID:-onebrc-readonly}
+  R2_SECRET_ACCESS_KEY: ${R2_API_SECRET_ACCESS_KEY:-onebrc-readonly-secret}
+  # This hostname is embedded in presigned redirects and must be reachable by the browser.
+  R2_ENDPOINT: ${R2_PUBLIC_ENDPOINT:-http://localhost:9000}
+  RUNNER_SSH_HOST: benchmark-host
+  RUNNER_SSH_PORT: "22"
+  RUNNER_SSH_USER: onebrc
+  RUNNER_SSH_PASSWORD: onebrc
+  BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v1
+  BENCHMARK_INSTANCE_TYPE: docker-local
+  BENCHMARK_CPU: host CPUs
+  BENCHMARK_MEMORY: host memory
+  BENCHMARK_RUNNER_IMAGE: onebrc-runner:ubuntu26
+  BENCHMARK_KERNEL: Docker host kernel
+  BENCHMARK_DOCKER_VERSION: Docker-in-Docker (Ubuntu 26.04 package)
+  BENCHMARK_NODE_VERSION: 24.18.0
+  BENCHMARK_RUBY_VERSION: 4.0.5
+  BENCHMARK_SHARED_LIBRARIES: libc6,libgcc-s1,libstdc++6,zlib1g,libssl3t64,libyaml-0-2,libreadline8t64,libffi8,libgdbm6t64
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ${NS_MARIADB_DATABASE:-onebrc}
+      MARIADB_USER: ${NS_MARIADB_USER:-onebrc}
+      MARIADB_PASSWORD: ${NS_MARIADB_PASSWORD:-onebrc}
+      MARIADB_ROOT_PASSWORD: ${NS_MARIADB_ROOT_PASSWORD:-onebrc-root}
+    command:
+      [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_bin",
+        "--max-allowed-packet=32M",
+      ]
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rustfs:
+    image: rustfs/rustfs:latest@sha256:fa19210ac4697c79d7ccca1ec9b0eb91aebacc6691991ffb14014bb3c67e6cc3
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ADMIN_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_ADMIN_SECRET_KEY:-rustfsadmin}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    command: ["--address", ":9000", "--console-enable", "/data"]
+    volumes:
+      - rustfs-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  rustfs-init:
+    image: minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set local http://rustfs:9000 "$${RUSTFS_ADMIN_ACCESS_KEY}" "$${RUSTFS_ADMIN_SECRET_KEY}" >/dev/null 2>&1;
+        do sleep 1; done;
+        mc admin user add local "$${R2_API_ACCESS_KEY_ID}" "$${R2_API_SECRET_ACCESS_KEY}" >/dev/null 2>&1 || true;
+        mc admin policy create local onebrc-api-read-only /config/api-read-only-policy.json >/dev/null;
+        mc admin policy detach local readonly --user "$${R2_API_ACCESS_KEY_ID}" >/dev/null 2>&1 || true;
+        mc admin policy attach local onebrc-api-read-only --user "$${R2_API_ACCESS_KEY_ID}" >/dev/null
+    environment:
+      RUSTFS_ADMIN_ACCESS_KEY: ${RUSTFS_ADMIN_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_ADMIN_SECRET_KEY: ${RUSTFS_ADMIN_SECRET_KEY:-rustfsadmin}
+      R2_API_ACCESS_KEY_ID: ${R2_API_ACCESS_KEY_ID:-onebrc-readonly}
+      R2_API_SECRET_ACCESS_KEY: ${R2_API_SECRET_ACCESS_KEY:-onebrc-readonly-secret}
+    volumes:
+      - ./infra/rustfs/api-read-only-policy.json:/config/api-read-only-policy.json:ro
+    depends_on:
+      rustfs:
+        condition: service_started
+
+  benchmark-host:
+    build:
+      context: .
+      dockerfile: infra/docker/benchmark-host.Dockerfile
+    privileged: true
+    environment:
+      RUNNER_PUBLIC_INPUT: /var/lib/1brc/data/public.csv
+      RUNNER_PUBLIC_EXPECTED: /var/lib/1brc/data/public.expected
+      RUNNER_PRIVATE_INPUT: /var/lib/1brc/data/private.csv
+      RUNNER_PRIVATE_EXPECTED: /var/lib/1brc/data/private.expected
+      BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v1
+    volumes:
+      - benchmark-docker:/var/lib/docker
+      - benchmark-jobs:/var/lib/1brc/jobs
+      - ./data/local:/var/lib/1brc/data
+    tmpfs:
+      - /var/lib/1brc/work:size=1073741824,mode=1777
+    ports:
+      - "2222:22"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/app.Dockerfile
+    command: ["/opt/node/bin/node", "/app/apps/server/dist/migrate.js"]
+    environment: *app-environment
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/app.Dockerfile
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rustfs:
+        condition: service_started
+      rustfs-init:
+        condition: service_completed_successfully
+      benchmark-host:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/node/bin/node",
+          "-e",
+          "fetch('http://localhost:3000/api/v1/healthz').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/app.Dockerfile
+    command: ["/opt/node/bin/node", "/app/apps/server/dist/worker.js"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      benchmark-host:
+        condition: service_started
+
+  mock-auth:
+    build:
+      context: .
+      dockerfile: infra/docker/app.Dockerfile
+    command: ["/opt/node/bin/node", "/app/apps/mock-auth/dist/index.js"]
+    environment:
+      PORT: "8080"
+      AUTH_PROXY_TARGET: http://api:3000
+      DEV_AUTH_USER: cp20
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+volumes:
+  mariadb-data:
+  rustfs-data:
+  benchmark-docker:
+  benchmark-jobs:

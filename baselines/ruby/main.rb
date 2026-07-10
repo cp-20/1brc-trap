@@ -26,6 +26,8 @@ def month_label_from_unix_timestamp(timestamp)
 end
 
 def parse_args(args)
+  return { input: args[0], output: args[1] } if args.length == 2 && !args[0].start_with?("-") && !args[1].start_with?("-")
+
   options = { input: nil, output: nil }
   i = 0
   while i < args.length

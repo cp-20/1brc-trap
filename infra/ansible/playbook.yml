@@ -1,0 +1,174 @@
+---
+- name: Configure the dedicated 1BRC benchmark host
+  hosts: benchmark
+  become: true
+  vars:
+    node_version: "24.18.0"
+    node_sha256: "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+  pre_tasks:
+    - name: Require Ubuntu 26.04
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version("26.04", "==")
+        fail_msg: "The benchmark host must run Ubuntu 26.04 LTS"
+
+  tasks:
+    - name: Install Docker and runner dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - docker.io
+          - rsync
+          - xz-utils
+        state: present
+        update_cache: true
+
+    - name: Enable Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Create runner user
+      ansible.builtin.user:
+        name: onebrc
+        shell: /bin/sh
+        groups: docker
+        append: true
+        create_home: true
+
+    - name: Create runner directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: onebrc
+        group: onebrc
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /opt/1brc, mode: "0755" }
+        - { path: /opt/1brc/runner, mode: "0755" }
+        - { path: /opt/1brc/apps/runner/image, mode: "0755" }
+        - { path: /var/lib/1brc/jobs, mode: "0700" }
+        - { path: /var/lib/1brc/data, mode: "0755" }
+        - { path: /var/lib/1brc/work, mode: "1777" }
+        - { path: /home/onebrc/.ssh, mode: "0700" }
+
+    - name: Mount benchmark work tmpfs
+      ansible.posix.mount:
+        path: /var/lib/1brc/work
+        src: tmpfs
+        fstype: tmpfs
+        opts: rw,nosuid,nodev,size=1G,mode=1777
+        state: mounted
+
+    - name: Download Node.js 24
+      ansible.builtin.get_url:
+        url: "https://nodejs.org/dist/v{{ node_version }}/node-v{{ node_version }}-linux-x64.tar.xz"
+        dest: "/tmp/node-v{{ node_version }}-linux-x64.tar.xz"
+        checksum: "sha256:{{ node_sha256 }}"
+        mode: "0644"
+
+    - name: Install Node.js 24
+      ansible.builtin.unarchive:
+        src: "/tmp/node-v{{ node_version }}-linux-x64.tar.xz"
+        dest: /opt/1brc
+        remote_src: true
+        creates: "/opt/1brc/node-v{{ node_version }}-linux-x64/bin/node"
+
+    - name: Deploy compiled runner
+      ansible.builtin.copy:
+        src: "../../apps/runner/dist/"
+        dest: /opt/1brc/runner/
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Rebuild runner image
+
+    - name: Deploy runner image context
+      ansible.builtin.copy:
+        src: "../../apps/runner/image/"
+        dest: /opt/1brc/apps/runner/image/
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Rebuild runner image
+
+    - name: Configure runner environment
+      ansible.builtin.template:
+        src: runner.env.j2
+        dest: /etc/onebrc-runner.env
+        owner: root
+        group: onebrc
+        mode: "0640"
+
+    - name: Install forced-command gateway
+      ansible.builtin.template:
+        src: onebrc-runner.j2
+        dest: /usr/local/bin/onebrc-runner
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Authorize application worker key
+      ansible.posix.authorized_key:
+        user: onebrc
+        key: "{{ onebrc_runner_public_key }}"
+        key_options: 'command="/usr/local/bin/onebrc-runner",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty'
+        exclusive: true
+
+    - name: Verify benchmark files exist
+      ansible.builtin.stat:
+        path: "/var/lib/1brc/data/{{ item.key }}"
+        checksum_algorithm: sha256
+      register: benchmark_files
+      failed_when: not benchmark_files.stat.exists or benchmark_files.stat.checksum != item.value
+      loop: "{{ onebrc_expected_checksums | dict2items }}"
+
+    - name: Set benchmark file ownership and mode
+      ansible.builtin.file:
+        path: "/var/lib/1brc/data/{{ item.key }}"
+        owner: onebrc
+        group: onebrc
+        mode: "0444"
+      loop: "{{ onebrc_expected_checksums | dict2items }}"
+
+    - name: Install stale artifact cleanup service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/onebrc-cleanup.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Remove abandoned 1BRC artifacts
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/find /var/lib/1brc/jobs -mindepth 1 -maxdepth 1 -type d -mmin +1440 -exec rm -rf -- {} +
+
+    - name: Install stale artifact cleanup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/onebrc-cleanup.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run 1BRC artifact cleanup hourly
+          [Timer]
+          OnBootSec=10min
+          OnUnitActiveSec=1h
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable cleanup timer
+      ansible.builtin.systemd_service:
+        name: onebrc-cleanup.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Rebuild runner image
+      community.docker.docker_image_build:
+        name: "{{ onebrc_runner_image }}"
+        path: /opt/1brc
+        dockerfile: apps/runner/image/Dockerfile
+        rebuild: always

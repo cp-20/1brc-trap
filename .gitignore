@@ -1,5 +1,7 @@
 # Generated benchmark data
 data/*.csv
+data/contest/
+data/local/
 
 # Benchmark outputs
 *.out
@@ -19,6 +21,11 @@ obj/
 
 # JavaScript / TypeScript dependencies and caches
 node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+cdk.out/
+.env
 .npm/
 .yarn/
 

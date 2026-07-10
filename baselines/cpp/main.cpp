@@ -116,7 +116,12 @@ static void write_result(std::ostream &output, const std::unordered_map<std::str
 int main(int argc, char **argv) {
   std::string input_path;
   std::string output_path;
-  for (int i = 1; i < argc; i++) {
+  const bool positional = argc == 3 && argv[1][0] != '-' && argv[2][0] != '-';
+  if (positional) {
+    input_path = argv[1];
+    output_path = argv[2];
+  }
+  for (int i = positional ? argc : 1; i < argc; i++) {
     std::string arg = argv[i];
     if (arg == "-i" && i + 1 < argc) {
       input_path = argv[++i];

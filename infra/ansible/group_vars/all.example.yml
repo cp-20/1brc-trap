@@ -1,0 +1,12 @@
+onebrc_runner_public_key: "ssh-ed25519 AAAA... application-worker"
+onebrc_environment_id: "r7i-4xlarge-ubuntu26-v1"
+onebrc_runner_image: "onebrc-runner:ubuntu26-v1"
+onebrc_public_input: "/var/lib/1brc/data/public.csv"
+onebrc_public_expected: "/var/lib/1brc/data/public.expected"
+onebrc_private_input: "/var/lib/1brc/data/private.csv"
+onebrc_private_expected: "/var/lib/1brc/data/private.expected"
+onebrc_expected_checksums:
+  public.csv: "replace-with-sha256"
+  public.expected: "replace-with-sha256"
+  private.csv: "replace-with-sha256"
+  private.expected: "replace-with-sha256"
