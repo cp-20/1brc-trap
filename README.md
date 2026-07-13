@@ -103,6 +103,8 @@ terraform -chdir=infra/cloudflare apply
 R2のS3 API credentialはCloudflare dashboardで二つ発行します。
 データ投入用credentialにはObject Read and Writeを付け、API用credentialには対象bucketのObject Readだけを付けます。
 Terraform providerはS3 API access keyを発行しないため、この操作だけはdashboardで行います。
+API用credentialにはClient IP Address Filteringを設定しないでください。presigned URLは参加者のブラウザからR2へ直接アクセスするためです。
+`R2_ACCESS_KEY_ID` と `R2_SECRET_ACCESS_KEY` にはCloudflare API tokenではなく、R2画面に表示されるAccess Key IDとSecret Access Keyを設定します。
 
 データ投入用credentialを環境変数に設定します。
 このcredentialにClient IP Address Filteringを設定する場合は、計測ホストのEIPも許可してください。

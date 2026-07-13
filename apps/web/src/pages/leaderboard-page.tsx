@@ -9,6 +9,7 @@ import {
 } from "../gateways/contest-gateway.js";
 import { useContestLive } from "../gateways/use-contest-live.js";
 import { selectableLanguages, languageLabel } from "../models/labels.js";
+import styles from "./leaderboard-page.module.css";
 
 export function LeaderboardPage() {
   const contest = useQuery({
@@ -32,15 +33,21 @@ export function LeaderboardPage() {
   return (
     <div className="page-stack">
       <PageHeader title="リーダーボード" />
-      <div className="toolbar">
-        <div className="segment-control">
+      <div className={styles.toolbar}>
+        <div
+          className={styles.boardSwitch}
+          role="group"
+          aria-label="リーダーボードの種類"
+        >
           <button
+            type="button"
             className={board === "public" ? "selected" : ""}
             onClick={() => setBoard("public")}
           >
             Public
           </button>
           <button
+            type="button"
             className={board === "private" ? "selected" : ""}
             disabled={!contest.data?.privatePublishedAt}
             onClick={() => setBoard("private")}

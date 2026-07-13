@@ -6,6 +6,7 @@ import {
   PageHeader,
   Panel,
   StatusBadge,
+  SuccessNotice,
 } from "../components/ui.js";
 import { adminGateway } from "../gateways/admin-gateway.js";
 import { contestGateway } from "../gateways/contest-gateway.js";
@@ -56,6 +57,9 @@ export function AdminPage() {
         datasetManifestSchema.parse(JSON.parse(await manifest.text())),
       );
     },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["datasets"] });
+    },
   });
   return (
     <div className="page-stack">
@@ -68,15 +72,23 @@ export function AdminPage() {
             className="file-input file-input-bordered w-full"
             type="file"
             accept="application/json"
-            onChange={(event) => setManifest(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              importManifest.reset();
+              setManifest(event.target.files?.[0] ?? null);
+            }}
           />
           <button
             className="btn btn-primary"
             onClick={() => importManifest.mutate()}
-            disabled={importManifest.isPending}
+            disabled={!manifest || importManifest.isPending}
           >
-            取り込む
+            {importManifest.isPending ? "確認しています…" : "取り込む"}
           </button>
+          {importManifest.data && !importManifest.isPending && (
+            <SuccessNotice>
+              {importManifest.data.imported}件のデータセット情報を取り込みました
+            </SuccessNotice>
+          )}
           {importManifest.error && (
             <ErrorAlert message={importManifest.error.message} />
           )}

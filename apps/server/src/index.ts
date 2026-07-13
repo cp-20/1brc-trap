@@ -23,20 +23,17 @@ const runner = await createRunnerClient(config);
 const contestRepository = createContestRepository(database);
 const submissionRepository = createSubmissionRepository(database);
 const administrationRepository = createAdminRepository(database);
+const datasets = createR2Signer(config);
 const app = createApp({
   config,
   database,
   logger,
-  contest: createContestService(
-    contestRepository,
-    createR2Signer(config),
-    config,
-    runner,
-  ),
+  contest: createContestService(contestRepository, datasets, config, runner),
   administration: createAdminService(
     administrationRepository,
     submissionRepository,
     config,
+    datasets,
   ),
   submissions: createSubmissionService(submissionRepository, runner, config),
   submissionQueries: createSubmissionQueryService(

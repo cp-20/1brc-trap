@@ -1,4 +1,8 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ResultAsync } from "neverthrow";
 import type { Config } from "./config.js";
@@ -13,7 +17,7 @@ export function createR2Signer(config: Config) {
   const client = new S3Client({
     region: "auto",
     endpoint,
-    forcePathStyle: Boolean(config.R2_ENDPOINT),
+    forcePathStyle: endpoint.startsWith("http://"),
     credentials: {
       accessKeyId: config.R2_ACCESS_KEY_ID,
       secretAccessKey: config.R2_SECRET_ACCESS_KEY,
@@ -21,6 +25,25 @@ export function createR2Signer(config: Config) {
   });
 
   return {
+    verifyObject(objectKey: string) {
+      return ResultAsync.fromPromise(
+        client
+          .send(
+            new HeadObjectCommand({
+              Bucket: config.R2_BUCKET_NAME,
+              Key: objectKey,
+            }),
+          )
+          .then(() => undefined),
+        (cause) =>
+          new AppError(
+            "infrastructure",
+            "r2_object_unavailable",
+            `R2上の公開データを確認できません: ${objectKey}`,
+            cause,
+          ),
+      );
+    },
     signDownload(objectKey: string, filename: string) {
       return ResultAsync.fromPromise(
         getSignedUrl(
@@ -36,7 +59,7 @@ export function createR2Signer(config: Config) {
           new AppError(
             "infrastructure",
             "r2_signing_failed",
-            "Download URL could not be issued",
+            "公開データのダウンロードURLを発行できません",
             cause,
           ),
       );

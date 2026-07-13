@@ -1,0 +1,49 @@
+.toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.boardSwitch {
+  display: grid;
+  height: 32px;
+  grid-template-columns: repeat(2, 56px);
+  overflow: hidden;
+  border: 1px solid #3b4957;
+  border-radius: 5px;
+  background: #111820;
+}
+
+.boardSwitch button {
+  border: 0;
+  background: transparent;
+  color: #98a6b5;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.boardSwitch button + button {
+  border-left: 1px solid #3b4957;
+}
+
+.boardSwitch button:global(.selected) {
+  background: #203b4c;
+  color: #d8f4ff;
+}
+
+.boardSwitch button:disabled {
+  color: #5e6a77;
+  cursor: not-allowed;
+}
+
+@media (max-width: 270px) {
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .boardSwitch {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

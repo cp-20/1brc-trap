@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ListChecks, Send, Timer, Users } from "lucide-react";
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AnimatedCountdown,
@@ -13,12 +12,17 @@ import {
   contestQueryKeys,
 } from "../gateways/contest-gateway.js";
 import { useContestLive } from "../gateways/use-contest-live.js";
-import { getContestPhase } from "../models/contest.js";
+import { useClock } from "../gateways/use-clock.js";
+import {
+  getContestPhase,
+  hasContestStarted,
+  isSubmissionOpen,
+} from "../models/contest.js";
 import { formatDate } from "../utils/format.js";
 import styles from "./dashboard-page.module.css";
 
 export function DashboardPage() {
-  const [now, setNow] = useState(() => new Date());
+  const now = useClock();
   useContestLive("public");
   const contest = useQuery({
     queryKey: contestQueryKeys.overview,
@@ -28,14 +32,14 @@ export function DashboardPage() {
     queryKey: contestQueryKeys.leaderboard("public"),
     queryFn: () => contestGateway.leaderboard("public"),
   });
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
   if (contest.isError && !contest.data) {
     return <ErrorAlert message={contest.error.message} />;
   }
   const phase = contest.data ? getContestPhase(contest.data, now) : undefined;
+  const started = contest.data ? hasContestStarted(contest.data, now) : false;
+  const submissionOpen = contest.data
+    ? isSubmissionOpen(contest.data, now)
+    : false;
   const startsAt = contest.data ? new Date(contest.data.startAt).getTime() : 0;
   const endsAt = contest.data ? new Date(contest.data.endAt).getTime() : 1;
   const elapsedRatio = Math.max(
@@ -50,14 +54,18 @@ export function DashboardPage() {
             <p className={styles.eyebrow}>OPTIMIZATION CONTEST</p>
             <h1>{contest.data.name}</h1>
             <p>traQ風CSVを集計するプログラムの実行時間を競うコンテストです。</p>
-            <div className={styles.actions}>
-              <Link className="btn btn-primary" to="/submit">
-                <Send size={17} /> 提出する
-              </Link>
-              <Link className="text-link" to="/contest">
-                ルールを見る <ArrowRight size={15} />
-              </Link>
-            </div>
+            {started && (
+              <div className={styles.actions}>
+                {submissionOpen && (
+                  <Link className="btn btn-primary" to="/submit">
+                    <Send size={17} /> 提出する
+                  </Link>
+                )}
+                <Link className="text-link" to="/contest">
+                  ルールを見る <ArrowRight size={15} />
+                </Link>
+              </div>
+            )}
           </section>
           <div className={styles.meta}>
             <div className={styles.metaCard}>

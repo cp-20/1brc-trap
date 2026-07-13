@@ -53,7 +53,7 @@ export function ErrorAlert({
 
 export function SuccessNotice({ children }: { children: ReactNode }) {
   return (
-    <div className="notice notice-success">
+    <div className="notice notice-success" role="status">
       <CheckCircle2 size={18} />
       <span>{children}</span>
     </div>

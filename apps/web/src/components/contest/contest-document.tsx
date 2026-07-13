@@ -135,7 +135,13 @@ function InputOutputSection({
 
       <div className={styles.subsection}>
         <h3>公開データ</h3>
-        <p>手元で正しさと実行方法を確認するための入力・期待出力です。</p>
+        <p>
+          手元で正しさと実行方法を確認するための入力・期待出力です。公開データはZstandardで圧縮した
+          <code>.zst</code>
+          ファイルのため、次のように展開してから使用してください。
+        </p>
+        <CodeBlock lang="shellscript">{`$ zstd -d public-1000000.csv.zst -o input.csv
+$ zstd -d public-1000000.expected.zst -o expected.txt`}</CodeBlock>
         {datasetsError ? (
           <ErrorAlert message="公開データを取得できませんでした" />
         ) : datasets?.datasets.length === 0 ? (

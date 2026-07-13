@@ -380,36 +380,6 @@ code {
   margin: 0 0 8px;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.segment-control {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid #344251;
-  border-radius: 6px;
-  background: #151c25;
-}
-.segment-control button {
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #98a6b5;
-  cursor: pointer;
-  font-size: 13px;
-}
-.segment-control button.selected {
-  background: #254459;
-  color: #d7f4ff;
-}
-.segment-control button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
 .submission-table td > code {
   color: #c8d7e5;
   font-size: 12px;
@@ -567,11 +537,6 @@ code {
 }
 
 @media (max-width: 310px) {
-  .toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .panel-heading {
     gap: 8px;
     padding: 16px;

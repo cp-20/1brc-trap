@@ -5,6 +5,49 @@
   padding: 22px;
 }
 
+.availability {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 22px;
+}
+
+.availability > svg {
+  flex: 0 0 auto;
+  color: #20beff;
+}
+
+.availability h2,
+.availability p {
+  margin: 0;
+}
+
+.availability h2 {
+  font-size: 16px;
+}
+
+.availability p {
+  margin-top: 5px;
+  color: #96a5b4;
+  font-size: 13px;
+}
+
+.availabilityIcon {
+  width: 22px;
+  height: 22px;
+}
+
+.availabilityTitle {
+  width: 220px;
+  height: 16px;
+}
+
+.availabilityText {
+  width: 130px;
+  height: 12px;
+  margin-top: 8px;
+}
+
 .step {
   display: grid;
   gap: 14px;

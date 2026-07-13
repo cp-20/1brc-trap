@@ -1,7 +1,21 @@
-type ContestSchedule = {
+export type ContestSchedule = {
   startAt: string;
   endAt: string;
 };
+
+export function hasContestStarted(
+  contest: ContestSchedule,
+  now = new Date(),
+): boolean {
+  return now >= new Date(contest.startAt);
+}
+
+export function isSubmissionOpen(
+  contest: ContestSchedule,
+  now = new Date(),
+): boolean {
+  return hasContestStarted(contest, now) && now <= new Date(contest.endAt);
+}
 
 export type ContestPhase = {
   label: string;

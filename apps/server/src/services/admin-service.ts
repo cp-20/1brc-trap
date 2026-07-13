@@ -1,5 +1,6 @@
 import type { DatasetManifest } from "@1brc/contracts";
 import type { Config } from "../infrastructures/config.js";
+import type { R2Signer } from "../infrastructures/r2-signer.js";
 import type { AdminRepository } from "../repositories/admin-repository.js";
 import type { SubmissionRepository } from "../repositories/submission-repository.js";
 import { issueAccessKey } from "../utils/crypto.js";
@@ -11,6 +12,7 @@ export function createAdminService(
   administration: AdminRepository,
   submissions: SubmissionRepository,
   config: Config,
+  datasets: Pick<R2Signer, "verifyObject">,
 ) {
   return {
     async issueAccessKey(username: string) {
@@ -49,6 +51,11 @@ export function createAdminService(
           "contest_id_mismatch",
           "マニフェストのコンテストIDが一致しません",
         );
+      for (const artifact of manifest.artifacts) {
+        if (!artifact.isPublic) continue;
+        const verified = await datasets.verifyObject(artifact.objectKey);
+        if (verified.isErr()) throw verified.error;
+      }
       await administration.importDatasetManifest(manifest, config);
       await administration.audit(
         admin,
