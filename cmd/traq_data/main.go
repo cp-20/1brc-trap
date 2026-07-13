@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	progressbar "github.com/cp-20/1blc-trap/internal/progress"
 )
 
 const (
@@ -35,6 +37,7 @@ func main() {
 	output := flag.String("o", "", "output file path; default is stdout")
 	seed := flag.Int64("seed", time.Now().UnixNano(), "random seed")
 	bufferSize := flag.Int("buffer", defaultBufferSize, "output buffer size in bytes")
+	showProgress := flag.Bool("progress", false, "print row progress to stderr")
 	flag.Parse()
 
 	if *rows < 0 {
@@ -55,7 +58,22 @@ func main() {
 
 	r := rand.New(rand.NewSource(*seed))
 	g := newGenerator(r, *channelCount)
-	if err := g.write(writer, *rows, *bufferSize); err != nil {
+	var bar *progressbar.Bar
+	var report func(int, bool)
+	if *showProgress {
+		bar = progressbar.New(os.Stderr, int64(*rows), "rows")
+		report = func(done int, final bool) {
+			if final {
+				bar.Done(true)
+			} else {
+				bar.Set(int64(done))
+			}
+		}
+	}
+	if err := g.write(writer, *rows, *bufferSize, report); err != nil {
+		if bar != nil {
+			bar.Done(false)
+		}
 		exit(err.Error())
 	}
 }
@@ -95,21 +113,34 @@ func newGenerator(r *rand.Rand, channelCount int) *generator {
 	}
 }
 
-func (g *generator) write(w io.Writer, rows, bufferSize int) error {
+func (g *generator) write(w io.Writer, rows, bufferSize int, report func(int, bool)) error {
 	buffered := bufio.NewWriterSize(w, bufferSize)
 	if _, err := buffered.WriteString("unix_timestamp,channel_path,message_length,stamp_count\n"); err != nil {
 		return err
 	}
 
 	line := make([]byte, 0, 96)
+	reportEvery := max(rows/10000, 1)
+	nextReport := reportEvery
 	for i := 0; i < rows; i++ {
 		line = g.appendRow(line[:0])
 		if _, err := buffered.Write(line); err != nil {
 			return err
 		}
+		done := i + 1
+		if report != nil && done >= nextReport && done < rows {
+			report(done, false)
+			nextReport += reportEvery
+		}
 	}
 
-	return buffered.Flush()
+	if err := buffered.Flush(); err != nil {
+		return err
+	}
+	if report != nil {
+		report(rows, true)
+	}
+	return nil
 }
 
 func (g *generator) appendRow(line []byte) []byte {

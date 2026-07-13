@@ -83,8 +83,8 @@ GitHub Actionsの参照を更新するときは `mise exec -- pinact run` を実
 
 - application DBにMariaDB 11.8.8を使うNeoShowcase
 - Cloudflareアカウント
-- AWSアカウントとEC2 key pair
-- Terraform、Ansible、rsync、AWS CLI
+- AWSアカウント
+- Terraform、Ansible、AWS CLI
 - NeoShowcase applicationから計測ホストの22番portへ到達できる経路
 
 ### R2 bucket
@@ -104,6 +104,16 @@ R2のS3 API credentialはCloudflare dashboardで二つ発行します。
 データ投入用credentialにはObject Read and Writeを付け、API用credentialには対象bucketのObject Readだけを付けます。
 Terraform providerはS3 API access keyを発行しないため、この操作だけはdashboardで行います。
 
+データ投入用credentialを環境変数に設定します。
+このcredentialにClient IP Address Filteringを設定する場合は、計測ホストのEIPも許可してください。
+ローカルPCだけを許可したcredentialで署名すると、presigned URLも計測ホストから `AccessDenied` になります。
+新規credentialの認可反映中に一時的な `AccessDenied` が返る場合があるため、Ansibleは最大5分間再試行します。
+
+```sh
+export R2_WRITE_ACCESS_KEY_ID=replace-with-r2-access-key-id
+export R2_WRITE_SECRET_ACCESS_KEY=replace-with-r2-secret-access-key
+```
+
 ### コンテストデータ
 
 生成物には非公開データが含まれるため、`data/` はGit管理外です。
@@ -112,7 +122,6 @@ Terraform providerはS3 API access keyを発行しないため、この操作だ
 mise exec -- go run ./cmd/contest_data generate \
   --contest-id 1brc-trap-2026 \
   --output data/contest \
-  --runner-dir data/runner \
   --public-rows 1000000000 \
   --private-rows 1000000000 \
   --tiers 1000000,10000000,100000000 \
@@ -121,9 +130,14 @@ mise exec -- go run ./cmd/contest_data generate \
 mise exec -- go run ./cmd/contest_data upload \
   --manifest data/contest/manifest.json \
   --bucket "$(terraform -chdir=infra/cloudflare output -raw bucket_name)" \
-  --account-id "$R2_ACCOUNT_ID" \
-  --access-key "$R2_WRITE_ACCESS_KEY_ID" \
-  --secret-key "$R2_WRITE_SECRET_ACCESS_KEY"
+  --endpoint "$(terraform -chdir=infra/cloudflare output -raw s3_endpoint)"
+
+mise exec -- go run ./cmd/contest_data presign-runner \
+  --manifest data/contest/manifest.json \
+  --bucket "$(terraform -chdir=infra/cloudflare output -raw bucket_name)" \
+  --endpoint "$(terraform -chdir=infra/cloudflare output -raw s3_endpoint)" \
+  --expires 24h \
+  --output data/contest/runner-downloads.json
 ```
 
 ### 計測ホスト
@@ -135,25 +149,42 @@ SSHのデフォルトCIDRは `0.0.0.0/0` です。
 API内worker専用の鍵はforced-command付きで登録されるため、任意のshell commandには使えません。
 
 ```sh
+aws configure --profile onebrc
+export AWS_PROFILE=onebrc
+export AWS_REGION=ap-northeast-1
+aws sts get-caller-identity
+
+install -d -m 0700 ~/.ssh
+ssh-keygen -t ed25519 -N '' -C onebrc-admin -f ~/.ssh/onebrc-admin
+aws ec2 import-key-pair \
+  --key-name onebrc-admin \
+  --public-key-material "fileb://$HOME/.ssh/onebrc-admin.pub"
+
+aws_account_id="$(aws sts get-caller-identity --query Account --output text)"
+mise exec -- bun run infra:cdk:bootstrap \
+  "aws://$aws_account_id/$AWS_REGION"
+
 ssh-keygen -t ed25519 -N '' -C onebrc-worker -f ~/.ssh/onebrc-worker
 
-mise exec -- bun run --filter @1brc/cdk synth \
+mise exec -- bun run infra:cdk:synth \
   -c keyPairName=onebrc-admin
-mise exec -- bun run --filter @1brc/cdk deploy \
+mise exec -- bun run infra:cdk:deploy \
   -c keyPairName=onebrc-admin \
   --outputs-file cdk-outputs.json
 ```
 
-Ansible用のinventory、runner公開鍵、環境ID、データのSHA-256はスクリプトが生成します。
-Ansibleはrunnerを構成し、`data/runner` の4ファイルをrsyncしてchecksumを検証します。
+スクリプトはAnsible用のinventoryと、runner公開鍵・環境ID・ダウンロード情報を含む変数ファイルを生成します。
+Ansibleはpresigned URLを使ってR2から4ファイルを直接ダウンロードし、圧縮時と展開後のchecksumを検証します。
+初回SSH接続ではhost keyを `known_hosts` に登録し、以降は同じkeyであることを検証します。
+URLが失効した場合は `presign-runner` と設定生成を再実行します。配置済みデータのchecksumが一致していれば再ダウンロードしません。
 
 ```sh
-mise exec -- bun run --filter @1brc/runner build
+mise exec -- bun run runner:build
 mise exec -- bun scripts/configure-ansible.ts \
   --cdk-outputs infra/cdk/cdk-outputs.json \
-  --ssh-private-key ~/.ssh/onebrc-admin.pem \
+  --ssh-private-key ~/.ssh/onebrc-admin \
   --runner-public-key ~/.ssh/onebrc-worker.pub \
-  --data-dir data/runner
+  --runner-downloads data/contest/runner-downloads.json
 
 ansible-galaxy collection install -r infra/ansible/requirements.yml
 ansible-playbook -i infra/ansible/inventory.yml infra/ansible/playbook.yml

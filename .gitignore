@@ -1,7 +1,5 @@
 # Generated benchmark data
-data/*.csv
-data/contest/
-data/local/
+data/
 
 # Benchmark outputs
 *.out
@@ -16,8 +14,8 @@ baselines/zig/traq_baseline_zig
 optimized/cpp/traq_optimized_cpp
 
 # .NET build outputs
-bin/
-obj/
+baselines/csharp/bin/
+baselines/csharp/obj/
 
 # JavaScript / TypeScript dependencies and caches
 node_modules/

@@ -25,7 +25,7 @@ func TestAnalyzeMemoryOutput(t *testing.T) {
 		fmt.Sprintf("%d,team/dev,20,1\n", monthStartUnix[1]) +
 		fmt.Sprintf("%d,team/ops,7,0\n", monthStartUnix[11])
 
-	result, err := analyzeMemory([]byte(input), 4, nil)
+	result, err := analyzeMemory([]byte(input), 4, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

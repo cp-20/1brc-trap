@@ -28,7 +28,7 @@ jobs:
       - name: TypeScriptアプリをbuildする
         run: bun run build
       - name: CDK templateを合成する
-        run: bun run --filter @1brc/cdk synth -c allowedSshCidr=203.0.113.10/32 -c keyPairName=onebrc-ci >/dev/null
+        run: bun run infra:cdk:synth -c allowedSshCidr=203.0.113.10/32 -c keyPairName=onebrc-ci >/dev/null
       - name: Goの単体テストを実行する
         run: go test ./...
       - name: Compose設定を検証する

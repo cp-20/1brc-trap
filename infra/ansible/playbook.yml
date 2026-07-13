@@ -6,23 +6,56 @@
     bun_version: "1.3.14"
     bun_sha256: "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
   pre_tasks:
+    - name: R2ダウンロード設定を確認する
+      ansible.builtin.assert:
+        that:
+          - (onebrc_dataset_downloads | default({})) | length == 4
+        fail_msg: "presign-runnerとconfigure-ansible.tsを実行してR2ダウンロード設定を生成してください"
+
     - name: Ubuntu 26.04であることを確認する
       ansible.builtin.assert:
         that:
-          - ansible_distribution == "Ubuntu"
-          - ansible_distribution_version is version("26.04", "==")
+          - ansible_facts["distribution"] == "Ubuntu"
+          - ansible_facts["distribution_version"] is version("26.04", "==")
         fail_msg: "計測ホストはUbuntu 26.04 LTSで実行する必要があります"
+
+    - name: R2署名URLを事前確認する
+      block:
+        - name: R2の認可反映を待つ
+          ansible.builtin.uri:
+            url: "{{ onebrc_dataset_downloads['public.expected'].url }}"
+            method: GET
+            headers:
+              Range: bytes=0-0
+            return_content: false
+            status_code:
+              - 206
+              - 403
+            timeout: 30
+          register: r2_download_preflight
+          until: (r2_download_preflight.status | default(-1)) == 206
+          retries: 20
+          delay: 15
+          changed_when: false
+          no_log: true
+      rescue:
+        - name: R2署名URLの事前確認失敗を報告する
+          ansible.builtin.fail:
+            msg: >-
+              計測ホストからR2署名URLへアクセスできません
+              (HTTP {{ r2_download_preflight.status | default('接続失敗') }})。
+              署名に使うR2 API tokenのObject Read権限とClient IP Address Filteringを確認し、
+              計測ホストの送信元IPを許可してからpresign-runnerとconfigure-ansible.tsを再実行してください。
 
   tasks:
     - name: Dockerとrunnerの依存パッケージをインストールする
       ansible.builtin.apt:
         name:
           - ca-certificates
-          - curl
           - docker.io
-          - rsync
           - unzip
           - xz-utils
+          - zstd
         state: present
         update_cache: true
 
@@ -119,30 +152,60 @@
         key_options: 'command="/usr/local/bin/onebrc-runner",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty'
         exclusive: true
 
-    - name: 計測データを配置する
-      ansible.posix.synchronize:
-        src: "{{ onebrc_data_source }}/"
-        dest: /var/lib/1brc/data/
-        recursive: true
-        checksum: true
-        archive: false
-        rsync_path: sudo rsync
-
-    - name: 計測データの存在とchecksumを検証する
+    - name: 配置済み計測データを確認する
       ansible.builtin.stat:
-        path: "/var/lib/1brc/data/{{ item.key }}"
+        path: "/var/lib/1brc/data/{{ item }}"
         checksum_algorithm: sha256
-      register: benchmark_files
-      failed_when: not benchmark_files.stat.exists or benchmark_files.stat.checksum != item.value
-      loop: "{{ onebrc_expected_checksums | dict2items }}"
+      loop: "{{ onebrc_dataset_downloads.keys() | list }}"
+      register: existing_datasets
+
+    - name: R2から圧縮済み計測データをダウンロードする
+      ansible.builtin.get_url:
+        url: "{{ onebrc_dataset_downloads[item].url }}"
+        dest: "/var/lib/1brc/data/{{ item }}.zst"
+        checksum: "sha256:{{ onebrc_dataset_downloads[item].compressed_sha256 }}"
+        owner: root
+        group: root
+        mode: "0600"
+        timeout: 60
+      loop: "{{ onebrc_dataset_downloads.keys() | list }}"
+      loop_control:
+        index_var: dataset_index
+      when: (existing_datasets.results[dataset_index].stat.checksum | default("")) != onebrc_dataset_downloads[item].sha256
+      no_log: true
+
+    - name: 計測データを展開する
+      ansible.builtin.command:
+        argv:
+          - zstd
+          - --decompress
+          - --force
+          - -o
+          - "/var/lib/1brc/data/{{ item }}"
+          - "/var/lib/1brc/data/{{ item }}.zst"
+      loop: "{{ onebrc_dataset_downloads.keys() | list }}"
+      loop_control:
+        index_var: dataset_index
+      when: (existing_datasets.results[dataset_index].stat.checksum | default("")) != onebrc_dataset_downloads[item].sha256
+
+    - name: ダウンロードした計測データのchecksumを検証する
+      ansible.builtin.stat:
+        path: "/var/lib/1brc/data/{{ item }}"
+        checksum_algorithm: sha256
+      register: downloaded_dataset
+      failed_when: not downloaded_dataset.stat.exists or downloaded_dataset.stat.checksum != onebrc_dataset_downloads[item].sha256
+      loop: "{{ onebrc_dataset_downloads.keys() | list }}"
+      loop_control:
+        index_var: dataset_index
+      when: (existing_datasets.results[dataset_index].stat.checksum | default("")) != onebrc_dataset_downloads[item].sha256
 
     - name: 計測データの所有者と権限を設定する
       ansible.builtin.file:
-        path: "/var/lib/1brc/data/{{ item.key }}"
+        path: "/var/lib/1brc/data/{{ item }}"
         owner: onebrc
         group: onebrc
         mode: "0444"
-      loop: "{{ onebrc_expected_checksums | dict2items }}"
+      loop: "{{ onebrc_dataset_downloads.keys() | list }}"
 
     - name: 古いartifactを削除するserviceを配置する
       ansible.builtin.copy:
@@ -177,6 +240,7 @@
 
   handlers:
     - name: runner imageを再buildする
+      listen: Rebuild runner image
       community.docker.docker_image_build:
         name: "{{ onebrc_runner_image }}"
         path: /opt/1brc

@@ -1,13 +1,24 @@
 onebrc_runner_public_key: "ssh-ed25519 AAAA... application-worker"
 onebrc_environment_id: "r7i-4xlarge-ubuntu26-v1"
 onebrc_runner_image: "onebrc-runner:ubuntu26-v1"
-onebrc_data_source: "/absolute/path/to/data/runner"
 onebrc_public_input: "/var/lib/1brc/data/public.csv"
 onebrc_public_expected: "/var/lib/1brc/data/public.expected"
 onebrc_private_input: "/var/lib/1brc/data/private.csv"
 onebrc_private_expected: "/var/lib/1brc/data/private.expected"
-onebrc_expected_checksums:
-  public.csv: "replace-with-sha256"
-  public.expected: "replace-with-sha256"
-  private.csv: "replace-with-sha256"
-  private.expected: "replace-with-sha256"
+onebrc_dataset_downloads:
+  public.csv:
+    url: "https://example.r2.cloudflarestorage.com/public.csv.zst?signature=replace-me"
+    sha256: "replace-with-uncompressed-sha256"
+    compressed_sha256: "replace-with-compressed-sha256"
+  public.expected:
+    url: "https://example.r2.cloudflarestorage.com/public.expected.zst?signature=replace-me"
+    sha256: "replace-with-uncompressed-sha256"
+    compressed_sha256: "replace-with-compressed-sha256"
+  private.csv:
+    url: "https://example.r2.cloudflarestorage.com/private.csv.zst?signature=replace-me"
+    sha256: "replace-with-uncompressed-sha256"
+    compressed_sha256: "replace-with-compressed-sha256"
+  private.expected:
+    url: "https://example.r2.cloudflarestorage.com/private.expected.zst?signature=replace-me"
+    sha256: "replace-with-uncompressed-sha256"
+    compressed_sha256: "replace-with-compressed-sha256"

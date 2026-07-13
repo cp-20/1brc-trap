@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	progressbar "github.com/cp-20/1blc-trap/internal/progress"
 )
 
 const (
@@ -122,6 +124,7 @@ func main() {
 	output := flag.String("o", "", "output file path; default is stdout")
 	threads := flag.Int("t", runtime.NumCPU(), "worker thread count")
 	profileEnabled := flag.Bool("profile", false, "print timing profile to stderr")
+	showProgress := flag.Bool("progress", false, "print input progress to stderr")
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	flag.Parse()
 
@@ -158,7 +161,16 @@ func main() {
 		p.mmapSeconds = secondsSince(mmapStart)
 	}
 
-	result, err := analyzeMemory(mapped.data, *threads, profileSink(*profileEnabled, &p))
+	var bar *progressbar.Bar
+	var report func(int64)
+	if *showProgress {
+		bar = progressbar.New(os.Stderr, int64(len(mapped.data)), "bytes")
+		report = bar.Add
+	}
+	result, err := analyzeMemory(mapped.data, *threads, profileSink(*profileEnabled, &p), report)
+	if bar != nil {
+		bar.Done(err == nil)
+	}
 	if err != nil {
 		exitWithError(err.Error())
 	}
@@ -201,7 +213,7 @@ func profileSink(enabled bool, p *profile) *profile {
 	return p
 }
 
-func analyzeMemory(data []byte, threads int, p *profile) (*flatMap, error) {
+func analyzeMemory(data []byte, threads int, p *profile, report func(int64)) (*flatMap, error) {
 	headerEnd := indexByte(data, 0, len(data), '\n')
 	if headerEnd < 0 {
 		return nil, fmt.Errorf("failed to read CSV header")
@@ -228,7 +240,7 @@ func analyzeMemory(data []byte, threads int, p *profile) (*flatMap, error) {
 	for i, c := range chunks {
 		go func(i int, c chunk) {
 			start := time.Now()
-			locals[i] = analyzeChunk(data[c.begin:c.end])
+			locals[i] = analyzeChunk(data[c.begin:c.end], report)
 			workerSeconds[i] = secondsSince(start)
 			done <- i
 		}(i, c)
@@ -255,8 +267,10 @@ func analyzeMemory(data []byte, threads int, p *profile) (*flatMap, error) {
 	return merged, nil
 }
 
-func analyzeChunk(data []byte) *flatMap {
+func analyzeChunk(data []byte, report func(int64)) *flatMap {
 	m := newFlatMap(defaultMapCap)
+	reported := 0
+	nextReport := 4 * 1024 * 1024
 	for i := 0; i < len(data); {
 		if data[i] == '\n' || data[i] == '\r' {
 			i++
@@ -310,6 +324,14 @@ func analyzeChunk(data []byte) *flatMap {
 
 		m.add(channel, channelHash, month, messageLength, stampCount)
 		i = p
+		if report != nil && i >= nextReport {
+			report(int64(i - reported))
+			reported = i
+			nextReport = i + 4*1024*1024
+		}
+	}
+	if report != nil && reported < len(data) {
+		report(int64(len(data) - reported))
 	}
 	return m
 }
