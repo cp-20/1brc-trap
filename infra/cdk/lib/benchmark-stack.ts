@@ -14,15 +14,17 @@ export class BenchmarkStack extends Stack {
     const instanceType =
       (this.node.tryGetContext("instanceType") as string | undefined) ??
       "r7i.4xlarge";
-    const allowedSshCidr = this.node.tryGetContext("allowedSshCidr") as
-      string | undefined;
+    const allowedSshCidr =
+      (this.node.tryGetContext("allowedSshCidr") as string | undefined) ??
+      "0.0.0.0/0";
     const keyPairName = this.node.tryGetContext("keyPairName") as
       string | undefined;
     const volumeSizeGiB = Number(
       this.node.tryGetContext("volumeSizeGiB") ?? 200,
     );
-    if (!allowedSshCidr)
-      throw new Error("CDK context allowedSshCidr is required");
+    const environmentId =
+      (this.node.tryGetContext("benchmarkEnvironmentId") as
+        string | undefined) ?? "r7i-4xlarge-ubuntu26-v1";
     if (!keyPairName) throw new Error("CDK context keyPairName is required");
     if (!Number.isInteger(volumeSizeGiB) || volumeSizeGiB < 100)
       throw new Error("volumeSizeGiB must be at least 100");
@@ -40,8 +42,7 @@ export class BenchmarkStack extends Stack {
       {
         vpc,
         allowAllOutbound: true,
-        description:
-          "Only the 1BRC worker and operator may SSH to the benchmark host",
+        description: "SSH access to the dedicated 1BRC benchmark host",
       },
     );
     securityGroup.addIngressRule(
@@ -103,7 +104,7 @@ export class BenchmarkStack extends Stack {
     new CfnOutput(this, "BenchmarkPublicIp", { value: eip.ref });
     new CfnOutput(this, "BenchmarkInstanceId", { value: instance.instanceId });
     new CfnOutput(this, "BenchmarkEnvironment", {
-      value: `${instanceType}-ubuntu26`,
+      value: environmentId,
     });
   }
 }

@@ -75,4 +75,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo "確認先: $base_url/leaderboard"
-echo "提出状況: docker compose logs -f worker"
+echo "提出状況: docker compose logs -f api"

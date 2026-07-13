@@ -17,6 +17,7 @@
     "typecheck": "bun run --parallel --workspaces --if-present typecheck",
     "test": "bun run --parallel --workspaces --if-present test",
     "db:migrate": "bun run --filter @1brc/server db:migrate",
+    "infra:ansible-config": "bun scripts/configure-ansible.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "ci:pin": "pinact run",

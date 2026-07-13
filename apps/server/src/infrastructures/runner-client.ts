@@ -36,9 +36,13 @@ export async function createRunnerClient(
   config: Config,
 ): Promise<RunnerClient> {
   let cachedEnvironment: RunnerEnvironment | undefined;
-  const privateKey = config.RUNNER_SSH_PRIVATE_KEY_PATH
-    ? await readFile(config.RUNNER_SSH_PRIVATE_KEY_PATH, "utf8")
-    : undefined;
+  const privateKey = config.RUNNER_SSH_PRIVATE_KEY_BASE64
+    ? Buffer.from(config.RUNNER_SSH_PRIVATE_KEY_BASE64, "base64").toString(
+        "utf8",
+      )
+    : config.RUNNER_SSH_PRIVATE_KEY_PATH
+      ? await readFile(config.RUNNER_SSH_PRIVATE_KEY_PATH, "utf8")
+      : undefined;
   const connection: ConnectConfig = {
     host: config.RUNNER_SSH_HOST,
     port: config.RUNNER_SSH_PORT,

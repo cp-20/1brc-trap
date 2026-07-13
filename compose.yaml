@@ -44,12 +44,13 @@ x-source-watch-ignore: &source-watch-ignore
 
 services:
   mariadb:
-    image: mariadb:11.4
+    image: mariadb:11.8.8@sha256:efb4959ef2c835cd735dbc388eb9ad6aab0c78dd64febcd51bc17481111890c4
     environment:
       MARIADB_DATABASE: ${NS_MARIADB_DATABASE:-onebrc}
       MARIADB_USER: ${NS_MARIADB_USER:-onebrc}
       MARIADB_PASSWORD: ${NS_MARIADB_PASSWORD:-onebrc}
       MARIADB_ROOT_PASSWORD: ${NS_MARIADB_ROOT_PASSWORD:-onebrc-root}
+      MARIADB_AUTO_UPGRADE: "1"
     command:
       [
         "--character-set-server=utf8mb4",
@@ -150,44 +151,14 @@ services:
         - <<: *rebuild-watch
           path: ./tsconfig.base.json
 
-  migrate:
-    build:
-      context: .
-      dockerfile: infra/docker/app.Dockerfile
-    command: ["/opt/bun/bin/bun", "/app/apps/server/dist/migrate.js"]
-    environment: *app-environment
-    depends_on:
-      mariadb:
-        condition: service_healthy
-    develop:
-      watch:
-        - <<: *rebuild-watch
-          path: ./apps/server/migrations
-        - <<: *rebuild-watch
-          path: ./apps/server/src/infrastructures/config.ts
-        - <<: *rebuild-watch
-          path: ./apps/server/src/migrate.ts
-        - <<: *rebuild-watch
-          path: ./apps/server/package.json
-        - <<: *rebuild-watch
-          path: ./infra/docker/app.Dockerfile
-        - <<: *rebuild-watch
-          path: ./package.json
-        - <<: *rebuild-watch
-          path: ./bun.lock
-        - <<: *rebuild-watch
-          path: ./bunfig.toml
-        - <<: *rebuild-watch
-          path: ./tsconfig.base.json
-
   api:
     build:
       context: .
       dockerfile: infra/docker/app.Dockerfile
     environment: *app-environment
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      mariadb:
+        condition: service_healthy
       rustfs:
         condition: service_started
       rustfs-init:
@@ -212,36 +183,6 @@ services:
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
           path: ./apps/web
-          ignore: *source-watch-ignore
-        - <<: *rebuild-watch
-          path: ./packages/contracts
-          ignore: *source-watch-ignore
-        - <<: *rebuild-watch
-          path: ./infra/docker/app.Dockerfile
-        - <<: *rebuild-watch
-          path: ./package.json
-        - <<: *rebuild-watch
-          path: ./bun.lock
-        - <<: *rebuild-watch
-          path: ./bunfig.toml
-        - <<: *rebuild-watch
-          path: ./tsconfig.base.json
-
-  worker:
-    build:
-      context: .
-      dockerfile: infra/docker/app.Dockerfile
-    command: ["/opt/bun/bin/bun", "/app/apps/server/dist/worker.js"]
-    environment: *app-environment
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      benchmark-host:
-        condition: service_healthy
-    develop:
-      watch:
-        - <<: *rebuild-watch
-          path: ./apps/server
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
           path: ./packages/contracts

@@ -34,4 +34,15 @@ describe("BenchmarkStack", () => {
       }),
     });
   });
+
+  it("allows SSH from any IPv4 address by default", () => {
+    const app = new App({ context: { keyPairName: "test-key" } });
+    const stack = new BenchmarkStack(app, "DefaultCidrStack");
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::EC2::SecurityGroup", {
+      SecurityGroupIngress: Match.arrayWith([
+        Match.objectLike({ CidrIp: "0.0.0.0/0", FromPort: 22, ToPort: 22 }),
+      ]),
+    });
+  });
 });

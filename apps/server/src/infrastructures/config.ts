@@ -26,6 +26,7 @@ const envSchema = z.object({
   RUNNER_SSH_PORT: z.coerce.number().int().positive().default(22),
   RUNNER_SSH_USER: z.string().min(1).default("onebrc"),
   RUNNER_SSH_PRIVATE_KEY_PATH: z.string().optional(),
+  RUNNER_SSH_PRIVATE_KEY_BASE64: z.string().min(1).optional(),
   RUNNER_SSH_PASSWORD: z.string().optional(),
   RUNNER_SSH_HOST_KEY_SHA256: z
     .string()
@@ -57,14 +58,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (parsed.CONTEST_START_AT >= parsed.CONTEST_END_AT) {
     throw new Error("CONTEST_START_AT must be earlier than CONTEST_END_AT");
   }
-  if (!parsed.RUNNER_SSH_PRIVATE_KEY_PATH && !parsed.RUNNER_SSH_PASSWORD) {
+  if (
+    !parsed.RUNNER_SSH_PRIVATE_KEY_PATH &&
+    !parsed.RUNNER_SSH_PRIVATE_KEY_BASE64 &&
+    !parsed.RUNNER_SSH_PASSWORD
+  ) {
     throw new Error(
-      "RUNNER_SSH_PRIVATE_KEY_PATH or RUNNER_SSH_PASSWORD is required",
+      "RUNNER_SSH_PRIVATE_KEY_PATH, RUNNER_SSH_PRIVATE_KEY_BASE64, or RUNNER_SSH_PASSWORD is required",
     );
   }
   if (
     parsed.NODE_ENV === "production" &&
-    parsed.RUNNER_SSH_PRIVATE_KEY_PATH &&
+    (parsed.RUNNER_SSH_PRIVATE_KEY_PATH ||
+      parsed.RUNNER_SSH_PRIVATE_KEY_BASE64) &&
     !parsed.RUNNER_SSH_HOST_KEY_SHA256
   ) {
     throw new Error(

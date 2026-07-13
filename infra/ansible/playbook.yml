@@ -119,6 +119,15 @@
         key_options: 'command="/usr/local/bin/onebrc-runner",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty'
         exclusive: true
 
+    - name: 計測データを配置する
+      ansible.posix.synchronize:
+        src: "{{ onebrc_data_source }}/"
+        dest: /var/lib/1brc/data/
+        recursive: true
+        checksum: true
+        archive: false
+        rsync_path: sudo rsync
+
     - name: 計測データの存在とchecksumを検証する
       ansible.builtin.stat:
         path: "/var/lib/1brc/data/{{ item.key }}"

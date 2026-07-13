@@ -21,8 +21,6 @@
 
 .trigger:focus-visible {
   border-color: #20beff;
-  outline: 2px solid rgb(32 190 255 / 18%);
-  outline-offset: 1px;
 }
 
 .compact {

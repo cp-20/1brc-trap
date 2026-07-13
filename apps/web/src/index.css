@@ -30,6 +30,21 @@ body {
 html body[data-scroll-locked] {
   margin-right: 0 !important;
   padding-right: 0 !important;
+  /* Radix Select must lock scrolling without turning body into the sticky
+     header's scroll container. `hidden` makes an already-scrolled header jump
+     out of the viewport; `clip` keeps both the lock and the viewport sticky. */
+  overflow: clip !important;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role="tab"]:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid #56cfff !important;
+  outline-offset: 2px !important;
 }
 button,
 input,

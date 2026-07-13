@@ -25,6 +25,13 @@ dist/
 coverage/
 *.tsbuildinfo
 cdk.out/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+infra/ansible/inventory.yml
+infra/ansible/group_vars/all.yml
 .env
 .npm/
 .yarn/

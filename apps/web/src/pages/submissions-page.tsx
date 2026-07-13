@@ -8,7 +8,7 @@ import { SubmissionProgress } from "../components/submission/submission-progress
 import { ErrorAlert, PageHeader } from "../components/ui.js";
 import { contestGateway } from "../gateways/contest-gateway.js";
 import { submissionGateway } from "../gateways/submission-gateway.js";
-import { isBetterScore } from "../models/submission.js";
+import { isBetterScore, isProcessing } from "../models/submission.js";
 import styles from "./submissions-page.module.css";
 
 export function SubmissionsPage() {
@@ -30,6 +30,11 @@ export function SubmissionsPage() {
   const submitted = submittedId
     ? submissions.data?.submissions.find((item) => item.id === submittedId)
     : undefined;
+  const latestSubmission = submissions.data?.submissions[0];
+  const processingSubmission =
+    latestSubmission && isProcessing(latestSubmission)
+      ? latestSubmission
+      : undefined;
   const submittedLoaded = submitted !== undefined;
 
   useLayoutEffect(() => {
@@ -81,7 +86,9 @@ export function SubmissionsPage() {
           </Link>
         }
       />
-      {submittedId && <SubmissionProgress submission={submitted} />}
+      {processingSubmission && (
+        <SubmissionProgress submission={processingSubmission} />
+      )}
       {submissions.isError ? (
         <ErrorAlert message={submissions.error.message} />
       ) : (

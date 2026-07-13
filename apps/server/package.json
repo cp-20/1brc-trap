@@ -11,10 +11,8 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "dev:worker": "bun --watch src/worker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/index.js",
-    "worker": "bun dist/worker.js",
     "db:migrate": "bun src/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src"

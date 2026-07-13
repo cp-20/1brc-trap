@@ -1,30 +1,33 @@
 # 1BRC for traP
 
-1BRC形式の最適化コンテストを運営するためのWebアプリケーションです。React製フロントエンド、Hono API、非同期worker、隔離された計測runner、データ生成・配布ツール、AWS CDKとAnsibleを含みます。
+1BRC形式の最適化コンテストを運営するWebアプリケーションです。
+React製フロントエンド、Hono API、非同期worker、隔離された計測runner、データ生成ツール、AWS CDK、Terraform、Ansibleを含みます。
 
 ## Quick start
 
-必要なもの:
+ローカル開発には次のソフトウェアが必要です。
 
 - [mise](https://mise.jdx.dev/)
-- Docker / Docker Compose
+- DockerとDocker Compose
 - x86_64 Linuxコンテナを実行できる環境
 
-次のスクリプトがツールの導入、fixture生成、依存サービスの起動、migration、manifest取込みまで行います。
+セットアップスクリプトは開発ツールと依存パッケージを導入し、fixtureを生成して全サービスを起動します。
+APIの起動時にMariaDBのmigrationを適用し、生成したmanifestも取り込みます。
 
 ```sh
 ./scripts/setup-local.sh
 ```
 
-初回はUbuntu 26.04ベースの計測imageをbuildするため数分かかります。起動後は <http://localhost:8080> を開きます。開発用ユーザーは `cp20` です。
+起動後は <http://localhost:8080> を開きます。
+開発用ユーザーは `cp20` です。
 
 ```sh
 docker compose ps
-docker compose logs -f api worker benchmark-host
+docker compose logs -f api benchmark-host
 docker compose down
 ```
 
-DB・object storage・runner artifactを含めて初期化する場合だけ `docker compose down -v` を使います。
+DB、object storage、runner artifactも消す場合だけ `docker compose down -v` を使います。
 
 ## 開発
 
@@ -40,67 +43,70 @@ mise exec -- go test ./...
 docker compose config --quiet
 ```
 
-コンテナ構成のまま開発する場合は、変更したworkspaceに対応するserviceだけを自動でbuild・再作成します。
+コンテナ構成で開発するときは、Compose Watchが変更されたworkspaceに対応するserviceを再buildします。
 
 ```sh
 docker compose watch
 ```
 
-概要・リーダーボード・実行キューのリアルタイム表示を確認する場合は、ローカル環境の提出APIへ5ユーザー分のTypeScript baselineを同時に送ります。
+リアルタイム更新を確認するスクリプトは、5ユーザー分のTypeScript baselineをローカルの提出APIへ送ります。
 
 ```sh
 ./scripts/enqueue-demo-submissions.sh
 ```
 
-主要なディレクトリ:
+主要なディレクトリは次のとおりです。
 
-- `apps/web`: React / Viteフロントエンド
-- `apps/server`: Hono API、worker、migration
-- `apps/runner`: forced-command SSH gatewayとDocker計測処理
-- `apps/mock-auth`: ローカル用認証proxy
-- `packages/contracts`: Hono RPCとZodの共有contract
-- `cmd/contest_data`: データ生成、object storageへのupload、runnerへの転送
-- `infra/cdk`: 計測用EC2
-- `infra/ansible`: 計測ホストの構成
+- `apps/web`：ReactとViteで構成したフロントエンド
+- `apps/server`：Hono API、worker、migration
+- `apps/runner`：forced-command SSH gatewayとDocker計測処理
+- `apps/mock-auth`：ローカル用認証proxy
+- `packages/contracts`：Hono RPCとZodの共有contract
+- `cmd/contest_data`：データ生成とR2へのupload
+- `infra/cloudflare`：データセット用R2 bucket
+- `infra/cdk`：計測用EC2
+- `infra/ansible`：計測ホストの構成
 
-依存関係はBun workspaceで管理し、lockfileは `bun.lock` です。Actionの参照を更新するときは `mise exec -- pinact run` を実行します。
+API process内のworker loopはDBの実行キューから提出を一件ずつ取得し、専用ホストのrunnerへSSHで計測を依頼します。
+runnerが返したpublic/privateの各計測結果を保存し、リーダーボードに使う代表提出を更新します。
+実際のプログラム実行は専用ホストで行い、API processでは非同期I/Oだけを扱うため、提出リクエストとSSE配信を長時間の計測で塞ぎません。
 
-## デプロイ
+依存関係はBun workspaceで管理し、lockfileは `bun.lock` です。
+GitHub Actionsの参照を更新するときは `mise exec -- pinact run` を実行します。
 
-本番には、アプリケーションとは別に次の周辺環境が必要です。
+## NeoShowcaseへのデプロイ
 
-1. MariaDB 11.4
-2. S3互換object storage (Cloudflare R2を想定)
-3. Ubuntu 26.04 x86_64の専用計測ホスト
-4. `X-Forwarded-User` を設定する認証proxy
-5. API/workerから計測ホストへ到達できるSSH経路
+本番ではAPIとworker loopを一つのNeoShowcase applicationで起動します。
+計測だけをNeoShowcase外の専用EC2で実行します。
 
-### 1. 計測ホストを作る
+事前に次の環境を用意します。
 
-CDKはUbuntu 26.04 amd64、暗号化gp3、EIP、接続元を限定したSSH ruleを作成します。
+- application DBにMariaDB 11.8.8を使うNeoShowcase
+- Cloudflareアカウント
+- AWSアカウントとEC2 key pair
+- Terraform、Ansible、rsync、AWS CLI
+- NeoShowcase applicationから計測ホストの22番portへ到達できる経路
 
-```sh
-mise exec -- bun run --filter @1brc/cdk synth \
-  -c allowedSshCidr=203.0.113.10/32 \
-  -c keyPairName=onebrc-admin \
-  -c instanceType=r7i.4xlarge
+### R2 bucket
 
-mise exec -- bun run --filter @1brc/cdk deploy \
-  -c allowedSshCidr=203.0.113.10/32 \
-  -c keyPairName=onebrc-admin \
-  -c instanceType=r7i.4xlarge
-```
-
-`infra/ansible/inventory.example.yml` と `infra/ansible/group_vars/all.example.yml` をコピーして、接続先、runner公開鍵、データのSHA-256を設定します。
+Terraformがコンテストデータ用bucketを作成します。
+Cloudflare API tokenには対象アカウントのR2 bucketを編集できる権限を付けます。
 
 ```sh
-ansible-galaxy collection install -r infra/ansible/requirements.yml
-ansible-playbook -i infra/ansible/inventory.yml infra/ansible/playbook.yml
+cp infra/cloudflare/terraform.tfvars.example infra/cloudflare/terraform.tfvars
+export CLOUDFLARE_API_TOKEN=replace-with-cloudflare-api-token
+terraform -chdir=infra/cloudflare init
+terraform -chdir=infra/cloudflare plan
+terraform -chdir=infra/cloudflare apply
 ```
 
-### 2. データを配置する
+R2のS3 API credentialはCloudflare dashboardで二つ発行します。
+データ投入用credentialにはObject Read and Writeを付け、API用credentialには対象bucketのObject Readだけを付けます。
+Terraform providerはS3 API access keyを発行しないため、この操作だけはdashboardで行います。
 
-`contest_data` で入力、期待出力、manifestを生成します。非公開データを含む `data/` はGit管理外です。
+### コンテストデータ
+
+生成物には非公開データが含まれるため、`data/` はGit管理外です。
 
 ```sh
 mise exec -- go run ./cmd/contest_data generate \
@@ -114,50 +120,100 @@ mise exec -- go run ./cmd/contest_data generate \
 
 mise exec -- go run ./cmd/contest_data upload \
   --manifest data/contest/manifest.json \
-  --bucket onebrc-datasets \
+  --bucket "$(terraform -chdir=infra/cloudflare output -raw bucket_name)" \
   --account-id "$R2_ACCOUNT_ID" \
-  --access-key "$AWS_ACCESS_KEY_ID" \
-  --secret-key "$AWS_SECRET_ACCESS_KEY"
-
-mise exec -- go run ./cmd/contest_data push-runner \
-  --source data/runner \
-  --target ubuntu@BENCHMARK_IP \
-  --identity ~/.ssh/onebrc-admin.pem
+  --access-key "$R2_WRITE_ACCESS_KEY_ID" \
+  --secret-key "$R2_WRITE_SECRET_ACCESS_KEY"
 ```
 
-本番のobject storage用credentialは、APIには対象bucketの `GetObject` だけを許可し、データ投入用credentialとは分離してください。
+### 計測ホスト
 
-### 3. APIとworkerを起動する
+CDKはUbuntu 26.04 amd64、暗号化gp3 volume、EIP、SSH ingress ruleを作成します。
+SSHのデフォルトCIDRは `0.0.0.0/0` です。
+接続元を限定する場合はdeploy時に `-c allowedSshCidr=203.0.113.10/32` を追加します。
 
-`infra/docker/app.Dockerfile` から同じimageをbuildし、API、worker、migrationを別processとして起動します。
+API内worker専用の鍵はforced-command付きで登録されるため、任意のshell commandには使えません。
 
 ```sh
-docker build -f infra/docker/app.Dockerfile -t onebrc-app .
+ssh-keygen -t ed25519 -N '' -C onebrc-worker -f ~/.ssh/onebrc-worker
 
-docker run --rm --env-file .env.production onebrc-app \
-  /opt/bun/bin/bun /app/apps/server/dist/migrate.js
-docker run --env-file .env.production onebrc-app \
-  /opt/bun/bin/bun /app/apps/server/dist/index.js
-docker run --env-file .env.production onebrc-app \
-  /opt/bun/bin/bun /app/apps/server/dist/worker.js
+mise exec -- bun run --filter @1brc/cdk synth \
+  -c keyPairName=onebrc-admin
+mise exec -- bun run --filter @1brc/cdk deploy \
+  -c keyPairName=onebrc-admin \
+  --outputs-file cdk-outputs.json
 ```
 
-起動後、`data/contest/manifest.json` を運営管理画面または認証済みの `POST /api/v1/admin/datasets/import` から取り込みます。manifestに含まれないobjectには、APIからpresigned URLを発行できません。
+Ansible用のinventory、runner公開鍵、環境ID、データのSHA-256はスクリプトが生成します。
+Ansibleはrunnerを構成し、`data/runner` の4ファイルをrsyncしてchecksumを検証します。
 
-APIを直接インターネットへ公開せず、認証proxyから渡される `X-Forwarded-User` だけを信頼する構成にします。SSEを中継するため、proxyでは `/api/v1/submissions/events` と `/api/v1/contest/events` のbufferingを無効にしてください。
+```sh
+mise exec -- bun run --filter @1brc/runner build
+mise exec -- bun scripts/configure-ansible.ts \
+  --cdk-outputs infra/cdk/cdk-outputs.json \
+  --ssh-private-key ~/.ssh/onebrc-admin.pem \
+  --runner-public-key ~/.ssh/onebrc-worker.pub \
+  --data-dir data/runner
 
-### 環境変数
+ansible-galaxy collection install -r infra/ansible/requirements.yml
+ansible-playbook -i infra/ansible/inventory.yml infra/ansible/playbook.yml
+```
 
-必須値は `apps/server/src/infrastructures/config.ts` が検証します。主な設定は次のとおりです。
+計測ホストを作り直すか、runner image、データセット、計測条件を変えた場合は、CDK contextの `benchmarkEnvironmentId` も変更します。
+異なる環境の実行時間を同じリーダーボードに混在させないためです。
 
-| 分類       | 変数                                                                                                                 |
-| ---------- | -------------------------------------------------------------------------------------------------------------------- |
-| アプリ     | `APP_ORIGIN`, `CONTEST_ID`, `CONTEST_START_AT`, `CONTEST_END_AT`, `ADMIN_USERS`                                      |
-| MariaDB    | `NS_MARIADB_HOSTNAME`, `NS_MARIADB_PORT`, `NS_MARIADB_DATABASE`, `NS_MARIADB_USER`, `NS_MARIADB_PASSWORD`            |
-| R2/S3      | `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`                         |
-| runner SSH | `RUNNER_SSH_HOST`, `RUNNER_SSH_PORT`, `RUNNER_SSH_USER`, `RUNNER_SSH_PRIVATE_KEY_PATH`, `RUNNER_SSH_HOST_KEY_SHA256` |
-| 計測環境   | `BENCHMARK_ENVIRONMENT_ID`, `BENCHMARK_INSTANCE_TYPE`, `BENCHMARK_RUNNER_IMAGE`                                      |
+### Application
 
-本番で秘密鍵認証を使う場合、`RUNNER_SSH_HOST_KEY_SHA256` は必須です。計測ホスト、runner image、データセット、計測条件のいずれかを変えた場合は `BENCHMARK_ENVIRONMENT_ID` も変更し、異なる環境のスコアを混在させないでください。
+NeoShowcaseでrepositoryを登録し、applicationを次の値で作成します。
 
-ローカル用の値は [.env.example](./.env.example) と [compose.yaml](./compose.yaml)、runner側の値は [runner.env.j2](./infra/ansible/templates/runner.env.j2) を参照してください。
+| 設定                   | 値                            |
+| ---------------------- | ----------------------------- |
+| Application Type       | Runtime                       |
+| Build Type             | Dockerfile                    |
+| Context                | `.`                           |
+| Dockerfile Name        | `infra/docker/app.Dockerfile` |
+| Use Database           | Yes / MariaDB                 |
+| Auto Shutdown          | Off                           |
+| Entrypoint / Command   | 空欄                          |
+| Website Port           | `3000`                        |
+| Website Authentication | HARD                          |
+
+HARD認証が付ける `X-Forwarded-User` をAPIがユーザー名として使います。
+公開websiteにはHTTPSを設定し、path prefixは `/` にします。
+
+NeoShowcaseはMariaDBを有効にしたapplicationへ `NS_MARIADB_*` を自動設定します。
+次の値をapplicationの環境変数に追加します。
+
+| 分類     | 変数                                                                                                                              |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| アプリ   | `NODE_ENV=production`, `APP_ORIGIN`, `CONTEST_ID`, `CONTEST_START_AT`, `CONTEST_END_AT`, `ADMIN_USERS`, `TRUST_PROXY_HEADER=true` |
+| R2       | `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`                                      |
+| runner   | `RUNNER_SSH_HOST`, `RUNNER_SSH_PORT=22`, `RUNNER_SSH_USER=onebrc`, `RUNNER_SSH_PRIVATE_KEY_BASE64`, `RUNNER_SSH_HOST_KEY_SHA256`  |
+| 計測環境 | `BENCHMARK_ENVIRONMENT_ID`, `BENCHMARK_INSTANCE_TYPE`, `BENCHMARK_RUNNER_IMAGE`                                                   |
+
+`R2_ENDPOINT` には `terraform -chdir=infra/cloudflare output -raw s3_endpoint` の結果を設定します。
+worker loop用秘密鍵とホスト鍵fingerprintは次のコマンドで環境変数向けの値に変換できます。
+
+```sh
+base64 -w 0 ~/.ssh/onebrc-worker
+ssh-keyscan -t ed25519 BENCHMARK_IP 2>/dev/null | ssh-keygen -lf - -E sha256
+```
+
+秘密鍵は `RUNNER_SSH_PRIVATE_KEY_BASE64` に一行で設定します。
+`ssh-keygen` の出力にある `SHA256:...` を `RUNNER_SSH_HOST_KEY_SHA256` に設定します。
+
+APIは起動時に未適用のSQL migrationを実行し、worker loopを開始してからHTTP serverを起動します。
+最初のbuildが起動したら、運営管理画面から `data/contest/manifest.json` を取り込みます。
+
+rolling deployで新旧replicaが重なっても、DBのadvisory lockを取得した一つのworker loopだけがキューを処理します。
+待機側のreplicaはHTTPを提供したままlockを再取得するため、新しいreplicaのhealth checkを妨げません。
+
+## Migration
+
+SQLファイルは `apps/server/migrations` に連番で追加します。
+API起動時のmigrationはMariaDBのadvisory lockを取得し、`schema_migrations` に未記録のファイルだけをファイル名順に適用します。
+同じ処理はローカルで単独実行できます。
+
+```sh
+mise exec -- bun run db:migrate
+```

@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+rm -f /var/run/docker.pid
 dockerd --host=unix:///var/run/docker.sock >/var/log/dockerd.log 2>&1 &
 until docker info >/dev/null 2>&1; do sleep 1; done
 docker build -t "$RUNNER_IMAGE" -f /opt/1brc/image-context/apps/runner/image/Dockerfile /opt/1brc/image-context

@@ -63,7 +63,7 @@ until curl -fsS http://localhost:8080/api/v1/healthz >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 180 ]; then
     echo "アプリの起動を確認できませんでした" >&2
-    docker compose logs --no-color api worker mock-auth >&2
+    docker compose logs --no-color api mock-auth >&2
     exit 1
   fi
   sleep 1

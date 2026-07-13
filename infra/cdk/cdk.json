@@ -2,6 +2,8 @@
   "app": "bun bin/onebrc.ts",
   "context": {
     "instanceType": "r7i.4xlarge",
+    "allowedSshCidr": "0.0.0.0/0",
+    "benchmarkEnvironmentId": "r7i-4xlarge-ubuntu26-v1",
     "volumeSizeGiB": 200
   }
 }
