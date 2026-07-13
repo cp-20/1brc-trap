@@ -111,31 +111,9 @@
   line-height: 1.35;
 }
 
-.skeletonEyebrow {
-  width: 150px;
-  height: 11px;
-}
-
 .skeletonTitle {
   width: min(480px, 72%);
-  height: 48px;
-  margin: 12px 0;
-}
-
-.skeletonDescription {
-  width: min(560px, 88%);
-  height: 18px;
-}
-
-.skeletonAction {
-  width: 210px;
-  height: 38px;
-  margin-top: 24px;
-}
-
-.skeletonIcon {
-  width: 17px;
-  height: 17px;
+  height: 1em;
 }
 
 .skeletonMetaLabel {
@@ -153,15 +131,6 @@
   width: 82px;
   height: 10px;
   margin-top: 2px;
-}
-
-.skeletonRing {
-  position: absolute;
-  top: 15px;
-  right: 18px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
 }
 
 @media (max-width: 720px) {

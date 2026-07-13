@@ -48,74 +48,115 @@ export function DashboardPage() {
   );
   return (
     <div className="page-stack">
-      {contest.data ? (
-        <>
-          <section className={styles.hero}>
-            <p className={styles.eyebrow}>OPTIMIZATION CONTEST</p>
-            <h1>{contest.data.name}</h1>
-            <p>traQ風CSVを集計するプログラムの実行時間を競うコンテストです。</p>
-            {started && (
-              <div className={styles.actions}>
-                {submissionOpen && (
-                  <Link className="btn btn-primary" to="/submit">
-                    <Send size={17} /> 提出する
-                  </Link>
-                )}
-                <Link className="text-link" to="/contest">
-                  ルールを見る <ArrowRight size={15} />
-                </Link>
-              </div>
+      <section className={styles.hero}>
+        <p className={styles.eyebrow}>OPTIMIZATION CONTEST</p>
+        <h1>
+          {contest.data ? (
+            contest.data.name
+          ) : (
+            <span
+              className={`skeleton-block ${styles.skeletonTitle}`}
+              aria-label="コンテスト名を読み込み中"
+            />
+          )}
+        </h1>
+        <p>traQ風CSVを集計するプログラムの実行時間を競うコンテストです。</p>
+        {started && (
+          <div className={styles.actions}>
+            {submissionOpen && (
+              <Link className="btn btn-primary" to="/submit">
+                <Send size={17} /> 提出する
+              </Link>
             )}
-          </section>
-          <div className={styles.meta}>
-            <div className={styles.metaCard}>
-              <Timer size={17} aria-hidden="true" />
-              <div className={styles.metaCopy}>
-                <span>{phase!.label}</span>
+            <Link className="text-link" to="/contest">
+              ルールを見る <ArrowRight size={15} />
+            </Link>
+          </div>
+        )}
+      </section>
+      <div className={styles.meta}>
+        <div className={styles.metaCard}>
+          <Timer size={17} aria-hidden="true" />
+          <div className={styles.metaCopy}>
+            {phase && contest.data ? (
+              <span>{phase.label}</span>
+            ) : (
+              <span
+                className={`skeleton-block ${styles.skeletonMetaLabel}`}
+                aria-hidden="true"
+              />
+            )}
+            {phase && contest.data ? (
+              <>
                 <strong className={styles.countdown}>
                   <AnimatedCountdown
-                    milliseconds={phase!.target.getTime() - now.getTime()}
+                    milliseconds={phase.target.getTime() - now.getTime()}
                   />
                 </strong>
                 <small>{formatDate(contest.data.endAt)} に終了</small>
-              </div>
-              <div
-                className={styles.progressRing}
-                style={{
-                  background: `conic-gradient(#20beff ${elapsedRatio * 360}deg, #303b48 0deg)`,
-                }}
-                aria-label={`コンテスト期間の${Math.round(elapsedRatio * 100)}%が経過`}
-              ></div>
-            </div>
-            <div className={styles.metaCard}>
-              <Users size={17} />
-              <div className={styles.metaCopy}>
-                <span>参加者</span>
-                <strong>
-                  <AnimatedNumber
-                    value={contest.data.participants}
-                    suffix=" 人"
-                  />
-                </strong>
-              </div>
-            </div>
-            <div className={styles.metaCard}>
-              <ListChecks size={17} />
-              <div className={styles.metaCopy}>
-                <span>総提出数</span>
-                <strong>
-                  <AnimatedNumber
-                    value={contest.data.totalSubmissions}
-                    suffix=" 件"
-                  />
-                </strong>
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                <span
+                  className={`skeleton-block ${styles.skeletonMetaValue}`}
+                  aria-label="残り時間を読み込み中"
+                />
+                <span
+                  className={`skeleton-block ${styles.skeletonMetaEnd}`}
+                  aria-hidden="true"
+                />
+              </>
+            )}
           </div>
-        </>
-      ) : (
-        <DashboardSkeleton />
-      )}
+          {contest.data && (
+            <div
+              className={styles.progressRing}
+              style={{
+                background: `conic-gradient(#20beff ${elapsedRatio * 360}deg, #303b48 0deg)`,
+              }}
+              aria-label={`コンテスト期間の${Math.round(elapsedRatio * 100)}%が経過`}
+            ></div>
+          )}
+        </div>
+        <div className={styles.metaCard}>
+          <Users size={17} />
+          <div className={styles.metaCopy}>
+            <span>参加者</span>
+            {contest.data ? (
+              <strong>
+                <AnimatedNumber
+                  value={contest.data.participants}
+                  suffix=" 人"
+                />
+              </strong>
+            ) : (
+              <span
+                className={`skeleton-block ${styles.skeletonMetaValue}`}
+                aria-label="参加者数を読み込み中"
+              />
+            )}
+          </div>
+        </div>
+        <div className={styles.metaCard}>
+          <ListChecks size={17} />
+          <div className={styles.metaCopy}>
+            <span>総提出数</span>
+            {contest.data ? (
+              <strong>
+                <AnimatedNumber
+                  value={contest.data.totalSubmissions}
+                  suffix=" 件"
+                />
+              </strong>
+            ) : (
+              <span
+                className={`skeleton-block ${styles.skeletonMetaValue}`}
+                aria-label="総提出数を読み込み中"
+              />
+            )}
+          </div>
+        </div>
+      </div>
       <Panel className="panel-table">
         <div className="panel-heading">
           <div>
@@ -133,35 +174,5 @@ export function DashboardPage() {
         />
       </Panel>
     </div>
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <>
-      <section className={styles.hero} aria-label="コンテストを読み込み中">
-        <span className={`skeleton-block ${styles.skeletonEyebrow}`} />
-        <span className={`skeleton-block ${styles.skeletonTitle}`} />
-        <span className={`skeleton-block ${styles.skeletonDescription}`} />
-        <span className={`skeleton-block ${styles.skeletonAction}`} />
-      </section>
-      <div className={styles.meta} aria-label="コンテスト情報を読み込み中">
-        {[0, 1, 2].map((item) => (
-          <div className={styles.metaCard} key={item}>
-            <span className={`skeleton-block ${styles.skeletonIcon}`} />
-            <div className={styles.metaCopy}>
-              <span className={`skeleton-block ${styles.skeletonMetaLabel}`} />
-              <span className={`skeleton-block ${styles.skeletonMetaValue}`} />
-              {item === 0 && (
-                <span className={`skeleton-block ${styles.skeletonMetaEnd}`} />
-              )}
-            </div>
-            {item === 0 && (
-              <span className={`skeleton-block ${styles.skeletonRing}`} />
-            )}
-          </div>
-        ))}
-      </div>
-    </>
   );
 }

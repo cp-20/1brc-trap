@@ -412,59 +412,21 @@
   font-size: 13px;
 }
 
-.tocSkeleton {
+.stateSkeleton {
   display: grid;
-  align-content: start;
-  gap: 13px;
-  padding: 9px 0 9px 15px;
-  border-left: 1px solid #303b48;
+  gap: 10px;
+  max-width: 680px;
+  padding: 22px;
 }
 
-.tocSkeleton span {
-  width: 105px;
+.stateSkeleton span:first-child {
+  width: min(300px, 70%);
+  height: 16px;
+}
+
+.stateSkeleton span:last-child {
+  width: min(180px, 45%);
   height: 12px;
-}
-
-.documentSkeleton {
-  min-width: 0;
-  padding: 8px 0 44px;
-  border-bottom: 1px solid #303b48;
-}
-
-.skeletonNumber {
-  width: 22px;
-  height: 10px;
-  margin-bottom: 10px;
-}
-
-.skeletonHeading {
-  width: 110px;
-  height: 28px;
-  margin-bottom: 22px;
-}
-
-.skeletonLine,
-.skeletonLineShort {
-  width: 100%;
-  height: 14px;
-  margin-bottom: 10px;
-}
-
-.skeletonLineShort {
-  width: 68%;
-}
-
-.skeletonPanel {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  margin-top: 24px;
-  padding: 16px;
-  border: 1px solid #303b48;
-}
-
-.skeletonPanel span {
-  height: 28px;
 }
 
 @media (max-width: 960px) {
@@ -526,10 +488,6 @@
   }
 
   .libraries {
-    grid-template-columns: 1fr;
-  }
-
-  .skeletonPanel {
     grid-template-columns: 1fr;
   }
 }

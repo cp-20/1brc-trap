@@ -59,32 +59,14 @@ export function ContestPage() {
       ) : contest.isError ? (
         <ErrorAlert message={contest.error.message} />
       ) : (
-        <ContestSkeleton />
+        <Panel
+          className={styles.stateSkeleton!}
+          aria-label="コンテストを読み込み中"
+        >
+          <span className="skeleton-block" />
+          <span className="skeleton-block" />
+        </Panel>
       )}
-    </div>
-  );
-}
-
-function ContestSkeleton() {
-  return (
-    <div className={styles.document} aria-label="コンテストを読み込み中">
-      <aside className={styles.tocSkeleton} aria-hidden>
-        {Array.from({ length: 5 }, (_, index) => (
-          <span className="skeleton-block" key={index} />
-        ))}
-      </aside>
-      <article className={styles.documentSkeleton} aria-hidden>
-        <span className={`skeleton-block ${styles.skeletonNumber}`} />
-        <span className={`skeleton-block ${styles.skeletonHeading}`} />
-        <span className={`skeleton-block ${styles.skeletonLine}`} />
-        <span className={`skeleton-block ${styles.skeletonLine}`} />
-        <span className={`skeleton-block ${styles.skeletonLineShort}`} />
-        <div className={styles.skeletonPanel}>
-          <span className="skeleton-block" />
-          <span className="skeleton-block" />
-          <span className="skeleton-block" />
-        </div>
-      </article>
     </div>
   );
 }
