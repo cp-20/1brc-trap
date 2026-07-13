@@ -15,11 +15,9 @@ export class BenchmarkStack extends Stack {
       (this.node.tryGetContext("instanceType") as string | undefined) ??
       "r7i.4xlarge";
     const allowedSshCidr = this.node.tryGetContext("allowedSshCidr") as
-      | string
-      | undefined;
+      string | undefined;
     const keyPairName = this.node.tryGetContext("keyPairName") as
-      | string
-      | undefined;
+      string | undefined;
     const volumeSizeGiB = Number(
       this.node.tryGetContext("volumeSizeGiB") ?? 200,
     );

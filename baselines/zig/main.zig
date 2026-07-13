@@ -49,12 +49,27 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
     defer args.deinit();
 
     _ = args.next();
+    const first = args.next();
+    if (first) |input| {
+        const second = args.next();
+        if (second) |output| {
+            if (args.next() == null and input[0] != '-' and output[0] != '-') {
+                return .{ .input = input, .output = output };
+            }
+        }
+    } else {
+        return .{};
+    }
+
+    var parsed_args = try std.process.argsWithAllocator(allocator);
+    defer parsed_args.deinit();
+    _ = parsed_args.next();
     var options = Options{};
-    while (args.next()) |arg| {
+    while (parsed_args.next()) |arg| {
         if (std.mem.eql(u8, arg, "-i")) {
-            options.input = args.next() orelse return error.MissingArgument;
+            options.input = parsed_args.next() orelse return error.MissingArgument;
         } else if (std.mem.eql(u8, arg, "-o")) {
-            options.output = args.next() orelse return error.MissingArgument;
+            options.output = parsed_args.next() orelse return error.MissingArgument;
         } else {
             return error.UnknownArgument;
         }

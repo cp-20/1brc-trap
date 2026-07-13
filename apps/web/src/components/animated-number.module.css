@@ -1,0 +1,18 @@
+.number {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  line-height: inherit;
+  --number-flow-mask-height: 0.15em;
+  --number-flow-mask-width: 0.3em;
+}
+
+.countdown {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.countdownValues {
+  display: inline-flex;
+  gap: 0.45em;
+}

@@ -10,32 +10,31 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "dev:worker": "tsx watch src/worker.ts",
+    "dev": "bun --watch src/index.ts",
+    "dev:worker": "bun --watch src/worker.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "worker": "node dist/worker.js",
-    "db:migrate": "tsx src/migrate.ts",
+    "start": "bun dist/index.js",
+    "worker": "bun dist/worker.js",
+    "db:migrate": "bun src/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run src"
   },
   "dependencies": {
     "@1brc/contracts": "workspace:*",
-    "@aws-sdk/client-s3": "^3.840.0",
-    "@aws-sdk/s3-request-presigner": "^3.840.0",
-    "@hono/node-server": "^1.14.4",
-    "@hono/zod-validator": "^0.7.0",
+    "@aws-sdk/client-s3": "^3.1084.0",
+    "@aws-sdk/s3-request-presigner": "^3.1084.0",
+    "@hono/zod-validator": "^0.8.0",
     "busboy": "^1.6.0",
-    "hono": "^4.8.4",
-    "mysql2": "^3.14.1",
+    "hono": "^4.12.28",
+    "mysql2": "^3.22.6",
     "neverthrow": "^8.2.0",
-    "ssh2": "^1.16.0",
-    "zod": "^3.25.67"
+    "p-retry": "^7.1.1",
+    "ssh2": "^1.17.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",
     "@types/ssh2": "^1.15.5",
-    "tsx": "^4.20.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.10"
   }
 }

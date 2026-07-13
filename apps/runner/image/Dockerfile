@@ -16,15 +16,20 @@ FROM ubuntu:26.04@sha256:c6c0067e0e45b7a826eaebb193cef957be28045380963a9b1eeb2a5
 
 ARG NODE_VERSION=24.18.0
 ARG NODE_SHA256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
+ARG BUN_VERSION=1.3.14
+ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl xz-utils libstdc++6 libgcc-s1 zlib1g libssl3t64 libyaml-0-2 libreadline8t64 \
+    ca-certificates curl xz-utils unzip libstdc++6 libgcc-s1 zlib1g libssl3t64 libyaml-0-2 libreadline8t64 \
     libffi8 libgdbm6t64 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSLo /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" && \
     echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - && \
     mkdir /opt/node && tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1 && rm /tmp/node.tar.xz
+RUN curl -fsSLo /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" && \
+    echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - && mkdir -p /opt/bun/bin && \
+    unzip -p /tmp/bun.zip bun-linux-x64/bun > /opt/bun/bin/bun && chmod 0755 /opt/bun/bin/bun && rm /tmp/bun.zip
 COPY --from=ruby-builder /opt/ruby /opt/ruby
 COPY apps/runner/image/measure.mjs /opt/1brc/measure.mjs
-ENV PATH="/opt/node/bin:/opt/ruby/bin:${PATH}" LANG=C.UTF-8
+ENV PATH="/opt/bun/bin:/opt/node/bin:/opt/ruby/bin:${PATH}" LANG=C.UTF-8
 RUN useradd --no-create-home --uid 65534 runner 2>/dev/null || true
 USER 65534:65534
 WORKDIR /work

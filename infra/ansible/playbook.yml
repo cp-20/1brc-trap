@@ -1,37 +1,38 @@
 ---
-- name: Configure the dedicated 1BRC benchmark host
+- name: 1BRC専用計測ホストを構成する
   hosts: benchmark
   become: true
   vars:
-    node_version: "24.18.0"
-    node_sha256: "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+    bun_version: "1.3.14"
+    bun_sha256: "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
   pre_tasks:
-    - name: Require Ubuntu 26.04
+    - name: Ubuntu 26.04であることを確認する
       ansible.builtin.assert:
         that:
           - ansible_distribution == "Ubuntu"
           - ansible_distribution_version is version("26.04", "==")
-        fail_msg: "The benchmark host must run Ubuntu 26.04 LTS"
+        fail_msg: "計測ホストはUbuntu 26.04 LTSで実行する必要があります"
 
   tasks:
-    - name: Install Docker and runner dependencies
+    - name: Dockerとrunnerの依存パッケージをインストールする
       ansible.builtin.apt:
         name:
           - ca-certificates
           - curl
           - docker.io
           - rsync
+          - unzip
           - xz-utils
         state: present
         update_cache: true
 
-    - name: Enable Docker
+    - name: Dockerを起動して自動起動を有効にする
       ansible.builtin.systemd_service:
         name: docker
         enabled: true
         state: started
 
-    - name: Create runner user
+    - name: runner用ユーザーを作成する
       ansible.builtin.user:
         name: onebrc
         shell: /bin/sh
@@ -39,7 +40,7 @@
         append: true
         create_home: true
 
-    - name: Create runner directories
+    - name: runner用ディレクトリを作成する
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: directory
@@ -55,7 +56,7 @@
         - { path: /var/lib/1brc/work, mode: "1777" }
         - { path: /home/onebrc/.ssh, mode: "0700" }
 
-    - name: Mount benchmark work tmpfs
+    - name: 計測用tmpfsをマウントする
       ansible.posix.mount:
         path: /var/lib/1brc/work
         src: tmpfs
@@ -63,21 +64,21 @@
         opts: rw,nosuid,nodev,size=1G,mode=1777
         state: mounted
 
-    - name: Download Node.js 24
+    - name: Bunをダウンロードする
       ansible.builtin.get_url:
-        url: "https://nodejs.org/dist/v{{ node_version }}/node-v{{ node_version }}-linux-x64.tar.xz"
-        dest: "/tmp/node-v{{ node_version }}-linux-x64.tar.xz"
-        checksum: "sha256:{{ node_sha256 }}"
+        url: "https://github.com/oven-sh/bun/releases/download/bun-v{{ bun_version }}/bun-linux-x64.zip"
+        dest: "/tmp/bun-v{{ bun_version }}-linux-x64.zip"
+        checksum: "sha256:{{ bun_sha256 }}"
         mode: "0644"
 
-    - name: Install Node.js 24
+    - name: Bunをインストールする
       ansible.builtin.unarchive:
-        src: "/tmp/node-v{{ node_version }}-linux-x64.tar.xz"
+        src: "/tmp/bun-v{{ bun_version }}-linux-x64.zip"
         dest: /opt/1brc
         remote_src: true
-        creates: "/opt/1brc/node-v{{ node_version }}-linux-x64/bin/node"
+        creates: /opt/1brc/bun-linux-x64/bun
 
-    - name: Deploy compiled runner
+    - name: コンパイル済みrunnerを配置する
       ansible.builtin.copy:
         src: "../../apps/runner/dist/"
         dest: /opt/1brc/runner/
@@ -86,7 +87,7 @@
         mode: "0644"
       notify: Rebuild runner image
 
-    - name: Deploy runner image context
+    - name: runner imageのbuild contextを配置する
       ansible.builtin.copy:
         src: "../../apps/runner/image/"
         dest: /opt/1brc/apps/runner/image/
@@ -95,7 +96,7 @@
         mode: "0644"
       notify: Rebuild runner image
 
-    - name: Configure runner environment
+    - name: runnerの環境変数を設定する
       ansible.builtin.template:
         src: runner.env.j2
         dest: /etc/onebrc-runner.env
@@ -103,7 +104,7 @@
         group: onebrc
         mode: "0640"
 
-    - name: Install forced-command gateway
+    - name: forced-command gatewayを配置する
       ansible.builtin.template:
         src: onebrc-runner.j2
         dest: /usr/local/bin/onebrc-runner
@@ -111,14 +112,14 @@
         group: root
         mode: "0755"
 
-    - name: Authorize application worker key
+    - name: application workerの公開鍵を許可する
       ansible.posix.authorized_key:
         user: onebrc
         key: "{{ onebrc_runner_public_key }}"
         key_options: 'command="/usr/local/bin/onebrc-runner",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty'
         exclusive: true
 
-    - name: Verify benchmark files exist
+    - name: 計測データの存在とchecksumを検証する
       ansible.builtin.stat:
         path: "/var/lib/1brc/data/{{ item.key }}"
         checksum_algorithm: sha256
@@ -126,7 +127,7 @@
       failed_when: not benchmark_files.stat.exists or benchmark_files.stat.checksum != item.value
       loop: "{{ onebrc_expected_checksums | dict2items }}"
 
-    - name: Set benchmark file ownership and mode
+    - name: 計測データの所有者と権限を設定する
       ansible.builtin.file:
         path: "/var/lib/1brc/data/{{ item.key }}"
         owner: onebrc
@@ -134,31 +135,31 @@
         mode: "0444"
       loop: "{{ onebrc_expected_checksums | dict2items }}"
 
-    - name: Install stale artifact cleanup service
+    - name: 古いartifactを削除するserviceを配置する
       ansible.builtin.copy:
         dest: /etc/systemd/system/onebrc-cleanup.service
         mode: "0644"
         content: |
           [Unit]
-          Description=Remove abandoned 1BRC artifacts
+          Description=放棄された1BRC artifactを削除する
           [Service]
           Type=oneshot
           ExecStart=/usr/bin/find /var/lib/1brc/jobs -mindepth 1 -maxdepth 1 -type d -mmin +1440 -exec rm -rf -- {} +
 
-    - name: Install stale artifact cleanup timer
+    - name: 古いartifactを削除するtimerを配置する
       ansible.builtin.copy:
         dest: /etc/systemd/system/onebrc-cleanup.timer
         mode: "0644"
         content: |
           [Unit]
-          Description=Run 1BRC artifact cleanup hourly
+          Description=1BRC artifactの削除を毎時実行する
           [Timer]
           OnBootSec=10min
           OnUnitActiveSec=1h
           [Install]
           WantedBy=timers.target
 
-    - name: Enable cleanup timer
+    - name: cleanup timerを起動して自動起動を有効にする
       ansible.builtin.systemd_service:
         name: onebrc-cleanup.timer
         enabled: true
@@ -166,7 +167,7 @@
         daemon_reload: true
 
   handlers:
-    - name: Rebuild runner image
+    - name: runner imageを再buildする
       community.docker.docker_image_build:
         name: "{{ onebrc_runner_image }}"
         path: /opt/1brc

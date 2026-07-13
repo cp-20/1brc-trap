@@ -45,6 +45,12 @@ fn month_label_from_unix_timestamp(timestamp: i64) -> Result<&'static str, Strin
 
 fn parse_args() -> Result<Options, String> {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.len() == 2 && !args[0].starts_with('-') && !args[1].starts_with('-') {
+        return Ok(Options {
+            input: args[0].clone(),
+            output: args[1].clone(),
+        });
+    }
     let mut options = Options {
         input: String::new(),
         output: String::new(),

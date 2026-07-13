@@ -1,0 +1,109 @@
+.viewport {
+  overflow-x: auto;
+  overflow-y: clip;
+}
+
+.updatedRowA > td {
+  animation: updated-row-pulse-a 2.2s ease-out 240ms;
+}
+
+.updatedRowB > td {
+  animation: updated-row-pulse-b 2.2s ease-out 240ms;
+}
+
+.runtimeValue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.runtimeDiffSlot {
+  display: inline-flex;
+  width: 76px;
+  min-height: 1em;
+  align-items: baseline;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.runtimeDiff {
+  animation: runtime-diff-lifetime 60s linear both;
+}
+
+.runtimeFaster {
+  color: #67d7a4;
+}
+
+.runtimeSlower {
+  color: #ff929f;
+}
+
+.runtimeUnchanged {
+  color: #8491a0;
+}
+
+@keyframes updated-row-pulse-a {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+
+  18% {
+    background-color: rgb(32 190 255 / 16%);
+  }
+
+  48% {
+    background-color: transparent;
+  }
+
+  68% {
+    background-color: rgb(32 190 255 / 8%);
+  }
+}
+
+@keyframes updated-row-pulse-b {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+
+  18% {
+    background-color: rgb(32 190 255 / 16%);
+  }
+
+  48% {
+    background-color: transparent;
+  }
+
+  68% {
+    background-color: rgb(32 190 255 / 8%);
+  }
+}
+
+@keyframes runtime-diff-lifetime {
+  0%,
+  94% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .updatedRowA > td,
+  .updatedRowB > td {
+    animation: none;
+  }
+
+  .runtimeDiff {
+    animation: none;
+  }
+}
+
+@media (min-width: 721px) {
+  .compactViewport {
+    overflow-x: clip;
+  }
+}

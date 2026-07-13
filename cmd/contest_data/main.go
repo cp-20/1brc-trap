@@ -22,7 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/klauspost/compress/zstd"
 )
@@ -235,7 +235,7 @@ func upload(args []string) error {
 	if createBucket {
 		_, _ = client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	}
-	uploader := manager.NewUploader(client)
+	transfer := transfermanager.New(client)
 	base := filepath.Dir(manifestPath)
 	for _, item := range data.Artifacts {
 		path := filepath.Join(base, filepath.Base(item.ObjectKey))
@@ -250,7 +250,7 @@ func upload(args []string) error {
 		if err != nil {
 			return err
 		}
-		_, uploadErr := uploader.Upload(ctx, &s3.PutObjectInput{
+		_, uploadErr := transfer.UploadObject(ctx, &transfermanager.UploadObjectInput{
 			Bucket:      aws.String(bucket),
 			Key:         aws.String(item.ObjectKey),
 			Body:        file,
@@ -297,15 +297,15 @@ func download(args []string) error {
 	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
 		return err
 	}
-	downloader := manager.NewDownloader(client)
+	transfer := transfermanager.New(client)
 	for _, item := range data.Artifacts {
 		path := filepath.Join(*outputDir, filepath.Base(item.ObjectKey))
 		file, err := os.Create(path)
 		if err != nil {
 			return err
 		}
-		_, downloadErr := downloader.Download(context.Background(), file, &s3.GetObjectInput{
-			Bucket: aws.String(*bucket), Key: aws.String(item.ObjectKey),
+		_, downloadErr := transfer.DownloadObject(context.Background(), &transfermanager.DownloadObjectInput{
+			Bucket: aws.String(*bucket), Key: aws.String(item.ObjectKey), WriterAt: file,
 		})
 		closeErr := file.Close()
 		if downloadErr != nil {

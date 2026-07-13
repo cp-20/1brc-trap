@@ -1,14 +1,14 @@
 import type { BenchmarkResult } from "@1brc/contracts";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
-import { loadConfig } from "./config.js";
-import { createDatabase } from "./db.js";
-import { createLogger } from "./logger.js";
-import { createRunnerClient } from "./runner-client.js";
+import { loadConfig } from "./infrastructures/config.js";
+import { createDatabase } from "./infrastructures/database.js";
+import { createLogger } from "./infrastructures/logger.js";
+import { createRunnerClient } from "./infrastructures/runner-client.js";
 
 type JobRow = RowDataPacket & {
   id: string;
   username: string;
-  execution_kind: "native" | "javascript" | "typescript" | "ruby";
+  execution_kind: "native" | "javascript" | "typescript" | "bun" | "ruby";
   language:
     | "c"
     | "cpp"
@@ -18,6 +18,7 @@ type JobRow = RowDataPacket & {
     | "csharp"
     | "javascript"
     | "typescript"
+    | "bun"
     | "ruby";
 };
 
@@ -122,11 +123,7 @@ async function cleanupStaleUploads() {
   for (const row of rows.value) {
     await runner.cleanup(row.id);
     await database.execute(
-      "DELETE FROM submission_sources WHERE submission_id = ?",
-      [row.id],
-    );
-    await database.execute(
-      "UPDATE submissions SET status = 'rejected', public_error = 'upload timeout', completed_at = CURRENT_TIMESTAMP(6) WHERE id = ? AND status = 'uploading'",
+      "DELETE FROM submissions WHERE id = ? AND status = 'uploading'",
       [row.id],
     );
   }
@@ -170,11 +167,12 @@ async function storeResult(
     await connection.execute(
       `UPDATE submissions
           SET status = 'completed', public_verdict = ?, public_score_ns = ?,
-              private_verdict = ?, private_score_ns = ?, completed_at = CURRENT_TIMESTAMP(6)
+              public_error = ?, private_verdict = ?, private_score_ns = ?, completed_at = CURRENT_TIMESTAMP(6)
         WHERE id = ?`,
       [
         publicResult.verdict,
         publicResult.medianNs,
+        publicResult.error,
         privateResult?.verdict ?? null,
         privateResult?.medianNs ?? null,
         job.id,

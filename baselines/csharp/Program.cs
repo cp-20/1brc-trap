@@ -46,6 +46,10 @@ sealed class Program
 
     static Options ParseArgs(string[] args)
     {
+        if (args.Length == 2 && !args[0].StartsWith('-') && !args[1].StartsWith('-'))
+        {
+            return new Options(args[0], args[1]);
+        }
         var input = "";
         var output = "";
         for (var i = 0; i < args.Length; i++)

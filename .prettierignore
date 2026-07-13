@@ -6,4 +6,5 @@ data
 *.zst
 cdk.out
 coverage
-pnpm-lock.yaml
+bun.lock
+optimized/typescript/main.ts

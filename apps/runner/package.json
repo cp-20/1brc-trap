@@ -4,20 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/gateway.ts",
+    "dev": "bun src/gateway.ts",
     "build": "tsc -p tsconfig.json && esbuild src/gateway.ts --bundle --platform=node --format=esm --outfile=dist/gateway.js",
-    "start": "node dist/gateway.js",
+    "start": "bun dist/gateway.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run src"
   },
   "dependencies": {
     "@1brc/contracts": "workspace:*",
     "neverthrow": "^8.2.0",
-    "zod": "^3.25.67"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "esbuild": "^0.25.5",
-    "tsx": "^4.20.3",
-    "vitest": "^3.2.4"
+    "esbuild": "^0.28.1",
+    "vitest": "^4.1.10"
   }
 }

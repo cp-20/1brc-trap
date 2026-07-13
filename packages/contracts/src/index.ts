@@ -4,6 +4,7 @@ export const executionKinds = [
   "native",
   "javascript",
   "typescript",
+  "bun",
   "ruby",
 ] as const;
 export const executionKindSchema = z.enum(executionKinds);
@@ -16,8 +17,10 @@ export const languages = [
   "rust",
   "zig",
   "csharp",
+  "other",
   "javascript",
   "typescript",
+  "bun",
   "ruby",
 ] as const;
 export const languageSchema = z.enum(languages);
@@ -55,8 +58,10 @@ export const sourceExtensions: Readonly<Record<Language, readonly string[]>> = {
   rust: [".rs"],
   zig: [".zig"],
   csharp: [".cs"],
+  other: [],
   javascript: [".js"],
   typescript: [".ts"],
+  bun: [".js", ".ts"],
   ruby: [".rb"],
 };
 
@@ -78,10 +83,12 @@ export type BenchmarkResult = {
   verdict: Verdict;
   durationsNs: [string, string, string] | null;
   medianNs: string | null;
+  error: string | null;
 };
 
 export type LeaderboardEntry = {
   rank: number | null;
+  rankChange: number | null;
   username: string;
   submissionId: string;
   language: Language;
@@ -140,12 +147,17 @@ export function inferLanguage(
   kind: ExecutionKind,
   requested?: string,
 ): Language | null {
-  if (kind === "javascript" || kind === "typescript" || kind === "ruby")
+  if (
+    kind === "javascript" ||
+    kind === "typescript" ||
+    kind === "bun" ||
+    kind === "ruby"
+  )
     return kind;
   const parsed = languageSchema.safeParse(requested);
   if (
     !parsed.success ||
-    ["javascript", "typescript", "ruby"].includes(parsed.data)
+    ["javascript", "typescript", "bun", "ruby"].includes(parsed.data)
   )
     return null;
   return parsed.data;

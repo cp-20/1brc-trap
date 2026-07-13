@@ -7,6 +7,7 @@ const commands = {
   native: [artifact, [input, output]],
   javascript: ["/opt/node/bin/node", [artifact, input, output]],
   typescript: ["/opt/node/bin/node", [artifact, input, output]],
+  bun: ["/opt/bun/bin/bun", [artifact, input, output]],
   ruby: ["/opt/ruby/bin/ruby", [artifact, input, output]],
 };
 const selected = commands[kind];
@@ -25,17 +26,27 @@ const child = spawn(selected[0], selected[1], {
 let captured = 0;
 let outputExceeded = false;
 let timedOut = false;
-for (const stream of [child.stdout, child.stderr]) {
-  stream.on("data", (chunk) => {
-    captured += chunk.length;
-    if (captured > 1024 * 1024) {
-      outputExceeded = true;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {}
-    }
-  });
-}
+let stderr = "";
+let spawnError = null;
+child.stdout.on("data", (chunk) => {
+  captured += chunk.length;
+  if (captured > 1024 * 1024) {
+    outputExceeded = true;
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {}
+  }
+});
+child.stderr.on("data", (chunk) => {
+  captured += chunk.length;
+  stderr = `${stderr}${chunk.toString("utf8")}`.slice(-8192);
+  if (captured > 1024 * 1024) {
+    outputExceeded = true;
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {}
+  }
+});
 const timer = setTimeout(() => {
   timedOut = true;
   try {
@@ -57,7 +68,10 @@ const outputWatcher = setInterval(async () => {
   checkingOutput = false;
 }, 25);
 const result = await new Promise((resolve) => {
-  child.once("error", () => resolve({ code: null, signal: null }));
+  child.once("error", (error) => {
+    spawnError = error;
+    resolve({ code: null, signal: null });
+  });
   child.once("close", (code, signal) => resolve({ code, signal }));
 });
 clearTimeout(timer);
@@ -65,6 +79,7 @@ clearInterval(outputWatcher);
 const durationNs = (process.hrtime.bigint() - start).toString();
 
 let verdict = "accepted";
+let error = null;
 if (timedOut) verdict = "time_limit";
 else if (outputExceeded) verdict = "output_limit";
 else if (result.code !== 0) verdict = "runtime_error";
@@ -73,11 +88,19 @@ else {
     if ((await stat(output)).size > 256 * 1024 * 1024) verdict = "output_limit";
   } catch {
     verdict = "runtime_error";
+    error = "出力ファイルが作成されませんでした";
   }
 }
+if (verdict === "runtime_error" && !error) {
+  error =
+    stderr.trim() || spawnError?.message || `process exited ${result.code}`;
+}
+if (verdict === "time_limit") error = "制限時間を超えました";
+if (verdict === "output_limit") error = "出力サイズの上限を超えました";
 process.stdout.write(
   JSON.stringify({
     verdict,
     durationNs: verdict === "accepted" ? durationNs : null,
+    error,
   }),
 );

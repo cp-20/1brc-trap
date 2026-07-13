@@ -1,0 +1,124 @@
+.hero {
+  padding: 8px 0 22px;
+  border-bottom: 1px solid #303b48;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #20beff;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.hero h1 {
+  max-width: 760px;
+  margin: 10px 0;
+  font-size: clamp(32px, 5vw, 50px);
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  line-height: 1.1;
+}
+
+.hero > p:not(.eyebrow) {
+  max-width: 600px;
+  margin: 0;
+  color: #9ba8b7;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #303b48;
+  border-radius: 7px;
+  background: #151c25;
+}
+
+.metaCard {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
+  gap: 9px;
+  align-items: start;
+  padding: 15px 18px;
+}
+
+.metaCard + .metaCard {
+  border-left: 1px solid #303b48;
+}
+
+.metaCard > svg {
+  margin-top: 1px;
+  color: #20beff;
+}
+
+.metaCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.metaCopy > span {
+  color: #8290a0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metaCopy > strong {
+  color: #edf4fa;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.progressRing {
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  justify-self: end;
+}
+
+.progressRing::after {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #151c25;
+  content: "";
+}
+
+.metaCopy > small {
+  color: #718190;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .meta {
+    grid-template-columns: 1fr;
+  }
+
+  .metaCard + .metaCard {
+    border-top: 1px solid #303b48;
+    border-left: 0;
+  }
+
+  .metaCard {
+    grid-template-columns: 20px minmax(0, 1fr) 20px;
+  }
+}

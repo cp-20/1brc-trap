@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
-import { loadConfig } from "./config.js";
+import { loadConfig } from "./infrastructures/config.js";
 
 const config = loadConfig();
 const connection = await mysql.createConnection({

@@ -1,5 +1,5 @@
 {
-  "app": "pnpm exec tsx bin/onebrc.ts",
+  "app": "bun bin/onebrc.ts",
   "context": {
     "instanceType": "r7i.4xlarge",
     "volumeSizeGiB": 200

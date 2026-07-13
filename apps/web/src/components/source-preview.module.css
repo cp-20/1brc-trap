@@ -1,0 +1,49 @@
+.preview {
+  overflow: hidden;
+  border: 1px solid #303c48;
+  background: #10161e;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #303c48;
+  background: #151e27;
+}
+
+.heading > div {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.heading strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heading small,
+.heading > span,
+.note {
+  color: #7f8e9c;
+  font-size: 10px;
+}
+
+.code {
+  max-height: 440px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.note {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid #303c48;
+}

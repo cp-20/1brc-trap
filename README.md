@@ -1,210 +1,163 @@
 # 1BRC for traP
 
-This repository contains a full contest platform for benchmarking implementations of the
-One Billion Rows Challenge over generated traQ-like message data.
+1BRC形式の最適化コンテストを運営するためのWebアプリケーションです。React製フロントエンド、Hono API、非同期worker、隔離された計測runner、データ生成・配布ツール、AWS CDKとAnsibleを含みます。
 
-## Contest platform
+## Quick start
 
-The application is a pnpm workspace:
+必要なもの:
 
-- `apps/web`: React, Vite, Tailwind CSS 4 and daisyUI 5 frontend.
-- `apps/server`: Hono API, MariaDB migrations, R2 presigning, upload handling and benchmark worker.
-- `apps/runner`: forced-command SSH gateway and isolated Docker benchmark runner.
-- `apps/mock-auth`: local OAuth/header-auth emulator.
-- `packages/contracts`: shared Zod schemas and TypeScript contracts.
-- `infra/cdk`: TypeScript CDK stack for the dedicated benchmark EC2 instance.
-- `infra/ansible`: Ubuntu 26.04/Docker runner provisioning.
-- `cmd/contest_data`: local-only Go dataset, expected result, zstd, R2/RustFS and rsync CLI.
+- [mise](https://mise.jdx.dev/)
+- Docker / Docker Compose
+- x86_64 Linuxコンテナを実行できる環境
 
-The browser-facing site is public. Submission and history routes accept either the trusted
-`X-Forwarded-User` injected by the authentication proxy or a per-user `1brc_...` access key.
-The Hono container must not be exposed directly in production.
-
-### Required application environment
-
-MariaDB connection settings deliberately use only these names:
-
-```text
-NS_MARIADB_DATABASE
-NS_MARIADB_HOSTNAME
-NS_MARIADB_PASSWORD
-NS_MARIADB_PORT
-NS_MARIADB_USER
-```
-
-The API also needs contest dates, R2 read-only credentials, and runner SSH settings. See
-[`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) for the complete development
-configuration. Production should use a separate read-only R2 key for the API; the local Go CLI
-uses a read/write key. Production private-key SSH also requires the runner's OpenSSH
-`SHA256:...` fingerprint in `RUNNER_SSH_HOST_KEY_SHA256`.
-
-## Local development
-
-Node.js 24, Go 1.24, Docker and Docker Compose are required. RustFS is used as the local S3-compatible
-object store. The benchmark-host container is privileged because it runs a dedicated Docker daemon;
-do not reuse that container definition outside development.
+次のスクリプトがツールの導入、fixture生成、依存サービスの起動、migration、manifest取込みまで行います。
 
 ```sh
-cp .env.example .env
-
-# Create small deterministic public/private fixtures and Go-only expected results.
-go run ./cmd/contest_data generate \
-  --contest-id 1brc-trap-local \
-  --output data/contest \
-  --runner-dir data/local \
-  --public-rows 100000 \
-  --private-rows 100000 \
-  --tiers 1000,10000,100000
-
-docker compose up -d rustfs mariadb benchmark-host
-
-# Upload only from this local operator command; the application never uploads datasets.
-go run ./cmd/contest_data upload \
-  --manifest data/contest/manifest.json \
-  --endpoint http://localhost:9000 \
-  --bucket onebrc-datasets \
-  --access-key rustfsadmin \
-  --secret-key rustfsadmin \
-  --create-bucket
-
-docker compose up -d --build
-
-# Log in as the local admin and import the public-object allowlist.
-curl -sS -c /tmp/onebrc-cookie -o /dev/null \
-  'http://localhost:8080/_oauth/login?redirect=/'
-curl --fail-with-body -b /tmp/onebrc-cookie \
-  -H 'Origin: http://localhost:8080' \
-  -H 'Content-Type: application/json' \
-  --data-binary @data/contest/manifest.json \
-  http://localhost:8080/api/v1/admin/datasets/import
+./scripts/setup-local.sh
 ```
 
-Open <http://localhost:8080>. The RustFS console is available on port 9001. Database migrations run
-as a one-shot Compose service before the API and worker start. `rustfs-init` creates a bucket-scoped
-GetObject-only API identity; the `rustfsadmin` credentials shown above remain local-operator-only.
-
-### curl submission
-
-Issue an access key from the site, then submit one source file. Native submissions additionally need
-an Ubuntu 26.04 x86_64 ELF binary.
+初回はUbuntu 26.04ベースの計測imageをbuildするため数分かかります。起動後は <http://localhost:8080> を開きます。開発用ユーザーは `cp20` です。
 
 ```sh
-export ONEBRC_ACCESS_KEY='1brc_...'
-
-curl --fail-with-body \
-  -H "Authorization: Bearer ${ONEBRC_ACCESS_KEY}" \
-  -F executionKind=typescript \
-  -F source=@main.ts \
-  http://localhost:8080/api/v1/submissions
-
-curl --fail-with-body \
-  -H "Authorization: Bearer ${ONEBRC_ACCESS_KEY}" \
-  -F executionKind=native \
-  -F language=cpp \
-  -F binary=@main \
-  -F source=@main.cpp \
-  http://localhost:8080/api/v1/submissions
+docker compose ps
+docker compose logs -f api worker benchmark-host
+docker compose down
 ```
 
-Programs receive the input filename as their first positional argument and the output filename as
-their second. The older baseline utilities documented below retain their historical `-i`/`-o`
-interface and are used internally by the Go dataset tool.
+DB・object storage・runner artifactを含めて初期化する場合だけ `docker compose down -v` を使います。
 
-## Production benchmark host
+## 開発
 
-Deploy the EC2 instance, copy datasets from the operator machine, build TypeScript artifacts, and run
-Ansible:
+miseが有効なshellでは `mise exec --` を省略できます。
 
 ```sh
-pnpm --filter @1brc/cdk synth \
+mise exec -- bun install --frozen-lockfile
+mise exec -- bun run dev
+mise exec -- bun run typecheck
+mise exec -- bun run test
+mise exec -- bun run build
+mise exec -- go test ./...
+docker compose config --quiet
+```
+
+コンテナ構成のまま開発する場合は、変更したworkspaceに対応するserviceだけを自動でbuild・再作成します。
+
+```sh
+docker compose watch
+```
+
+概要・リーダーボード・実行キューのリアルタイム表示を確認する場合は、ローカル環境の提出APIへ5ユーザー分のTypeScript baselineを同時に送ります。
+
+```sh
+./scripts/enqueue-demo-submissions.sh
+```
+
+主要なディレクトリ:
+
+- `apps/web`: React / Viteフロントエンド
+- `apps/server`: Hono API、worker、migration
+- `apps/runner`: forced-command SSH gatewayとDocker計測処理
+- `apps/mock-auth`: ローカル用認証proxy
+- `packages/contracts`: Hono RPCとZodの共有contract
+- `cmd/contest_data`: データ生成、object storageへのupload、runnerへの転送
+- `infra/cdk`: 計測用EC2
+- `infra/ansible`: 計測ホストの構成
+
+依存関係はBun workspaceで管理し、lockfileは `bun.lock` です。Actionの参照を更新するときは `mise exec -- pinact run` を実行します。
+
+## デプロイ
+
+本番には、アプリケーションとは別に次の周辺環境が必要です。
+
+1. MariaDB 11.4
+2. S3互換object storage (Cloudflare R2を想定)
+3. Ubuntu 26.04 x86_64の専用計測ホスト
+4. `X-Forwarded-User` を設定する認証proxy
+5. API/workerから計測ホストへ到達できるSSH経路
+
+### 1. 計測ホストを作る
+
+CDKはUbuntu 26.04 amd64、暗号化gp3、EIP、接続元を限定したSSH ruleを作成します。
+
+```sh
+mise exec -- bun run --filter @1brc/cdk synth \
   -c allowedSshCidr=203.0.113.10/32 \
   -c keyPairName=onebrc-admin \
   -c instanceType=r7i.4xlarge
 
-go run ./cmd/contest_data push-runner \
-  --source data/local \
-  --target ubuntu@BENCHMARK_IP \
-  --identity ~/.ssh/onebrc-admin.pem
+mise exec -- bun run --filter @1brc/cdk deploy \
+  -c allowedSshCidr=203.0.113.10/32 \
+  -c keyPairName=onebrc-admin \
+  -c instanceType=r7i.4xlarge
+```
 
-pnpm --filter @1brc/runner build
+`infra/ansible/inventory.example.yml` と `infra/ansible/group_vars/all.example.yml` をコピーして、接続先、runner公開鍵、データのSHA-256を設定します。
+
+```sh
 ansible-galaxy collection install -r infra/ansible/requirements.yml
 ansible-playbook -i infra/ansible/inventory.yml infra/ansible/playbook.yml
 ```
 
-The CDK stack uses Canonical's Ubuntu 26.04 amd64 SSM parameter, an encrypted gp3 volume, an EIP,
-IMDSv2, and an SSH security-group rule restricted to the supplied CIDR. Changing the EC2 type,
-runner image, or datasets requires a new `BENCHMARK_ENVIRONMENT_ID` and an empty leaderboard.
+### 2. データを配置する
 
-## Verification
+`contest_data` で入力、期待出力、manifestを生成します。非公開データを含む `data/` はGit管理外です。
 
 ```sh
-pnpm typecheck
-pnpm test
-pnpm build
-go test ./...
-docker compose config --quiet
+mise exec -- go run ./cmd/contest_data generate \
+  --contest-id 1brc-trap-2026 \
+  --output data/contest \
+  --runner-dir data/runner \
+  --public-rows 1000000000 \
+  --private-rows 1000000000 \
+  --tiers 1000000,10000000,100000000 \
+  --revision "$(git rev-parse HEAD)"
+
+mise exec -- go run ./cmd/contest_data upload \
+  --manifest data/contest/manifest.json \
+  --bucket onebrc-datasets \
+  --account-id "$R2_ACCOUNT_ID" \
+  --access-key "$AWS_ACCESS_KEY_ID" \
+  --secret-key "$AWS_SECRET_ACCESS_KEY"
+
+mise exec -- go run ./cmd/contest_data push-runner \
+  --source data/runner \
+  --target ubuntu@BENCHMARK_IP \
+  --identity ~/.ssh/onebrc-admin.pem
 ```
 
-## Benchmark utilities
+本番のobject storage用credentialは、APIには対象bucketの `GetObject` だけを許可し、データ投入用credentialとは分離してください。
 
-Utilities and baseline implementations for aggregating generated traQ message data.
+### 3. APIとworkerを起動する
 
-Generated CSV rows contain `unix_timestamp,channel_path,message_length,stamp_count`.
-Channel paths are generated from short English words with at most five levels, such as `team/dev/api/release/inbox`.
-Analyzers aggregate by channel path and month, and emit:
-
-```text
-channel_path,YYYY-MM=min_len/mean_len/max_len/messages/stamps
-```
-
-## Layout
-
-- `cmd/traq_data/`: generator for synthetic traQ message CSV data.
-- `baselines/`: baseline analyzers in Go, C, C++, C#, Ruby, Rust, TypeScript, and Zig.
-- `optimized/`: allocation-conscious, parallel analyzers for the same languages. Each
-  implementation is contained in one source file and uses no third-party library.
-- `data/`: local generated CSV files. These are intentionally ignored by Git.
-
-## Example
+`infra/docker/app.Dockerfile` から同じimageをbuildし、API、worker、migrationを別processとして起動します。
 
 ```sh
-go run ./cmd/traq_data -n 100000 -o data/traq_data.csv
-go run ./baselines/go -i data/traq_data.csv -o traq_baseline.out
+docker build -f infra/docker/app.Dockerfile -t onebrc-app .
+
+docker run --rm --env-file .env.production onebrc-app \
+  /opt/bun/bin/bun /app/apps/server/dist/migrate.js
+docker run --env-file .env.production onebrc-app \
+  /opt/bun/bin/bun /app/apps/server/dist/index.js
+docker run --env-file .env.production onebrc-app \
+  /opt/bun/bin/bun /app/apps/server/dist/worker.js
 ```
 
-## 100M C++ run
+起動後、`data/contest/manifest.json` を運営管理画面または認証済みの `POST /api/v1/admin/datasets/import` から取り込みます。manifestに含まれないobjectには、APIからpresigned URLを発行できません。
 
-```sh
-go run ./cmd/traq_data -n 100000000 -o data/data_100m.csv
-g++ -O3 -march=native -std=c++20 -pthread optimized/cpp/main.cpp -o optimized/cpp/traq_optimized_cpp
-optimized/cpp/traq_optimized_cpp -i data/data_100m.csv -o data/data_100m_optimized_cpp.out -t 16 --profile
-```
+APIを直接インターネットへ公開せず、認証proxyから渡される `X-Forwarded-User` だけを信頼する構成にします。SSEを中継するため、proxyでは `/api/v1/submissions/events` と `/api/v1/contest/events` のbufferingを無効にしてください。
 
-## 100M optimized Go run
+### 環境変数
 
-```sh
-go build -o optimized/go/traq_optimized_go ./optimized/go
-optimized/go/traq_optimized_go -i data/data_100m.csv -o data/data_100m_optimized_go.out -t 16 --profile
-```
+必須値は `apps/server/src/infrastructures/config.ts` が検証します。主な設定は次のとおりです。
 
-## Other optimized implementations
+| 分類       | 変数                                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| アプリ     | `APP_ORIGIN`, `CONTEST_ID`, `CONTEST_START_AT`, `CONTEST_END_AT`, `ADMIN_USERS`                                      |
+| MariaDB    | `NS_MARIADB_HOSTNAME`, `NS_MARIADB_PORT`, `NS_MARIADB_DATABASE`, `NS_MARIADB_USER`, `NS_MARIADB_PASSWORD`            |
+| R2/S3      | `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`                         |
+| runner SSH | `RUNNER_SSH_HOST`, `RUNNER_SSH_PORT`, `RUNNER_SSH_USER`, `RUNNER_SSH_PRIVATE_KEY_PATH`, `RUNNER_SSH_HOST_KEY_SHA256` |
+| 計測環境   | `BENCHMARK_ENVIRONMENT_ID`, `BENCHMARK_INSTANCE_TYPE`, `BENCHMARK_RUNNER_IMAGE`                                      |
 
-All optimized analyzers keep the baseline `-i`/`-o` interface and additionally
-accept `-t`/`--threads` and `--profile`. They require a seekable input path so
-native implementations can use `mmap` and managed implementations can split the
-file on complete CSV rows.
+本番で秘密鍵認証を使う場合、`RUNNER_SSH_HOST_KEY_SHA256` は必須です。計測ホスト、runner image、データセット、計測条件のいずれかを変えた場合は `BENCHMARK_ENVIRONMENT_ID` も変更し、異なる環境のスコアを混在させないでください。
 
-```sh
-gcc -O3 -march=native -std=c17 -pthread optimized/c/main.c -o traq_c
-g++ -O3 -march=native -std=c++20 -pthread optimized/cpp/main.cpp -o traq_cpp
-rustc -C opt-level=3 -C target-cpu=native -C lto=fat -C codegen-units=1 optimized/rust/main.rs -o traq_rust
-zig build-exe optimized/zig/main.zig -O ReleaseFast -mcpu=native -femit-bin=traq_zig
-
-ruby optimized/ruby/main.rb -i data/data_100m.csv -o result.out -t 8 --profile
-node --experimental-strip-types optimized/typescript/main.ts -i data/data_100m.csv -o result.out -t 8 --profile
-```
-
-The C# source is `optimized/csharp/Program.cs`; compile it in a .NET 8 console
-project with `AllowUnsafeBlocks=true` (Native AOT is supported), then use the same
-arguments. None of the implementations loads a second full copy of the input
-into a language heap. For benchmark data held in RAM, place the CSV on tmpfs.
+ローカル用の値は [.env.example](./.env.example) と [compose.yaml](./compose.yaml)、runner側の値は [runner.env.j2](./infra/ansible/templates/runner.env.j2) を参照してください。

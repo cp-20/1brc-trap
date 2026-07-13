@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { access, chmod, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { arch, cpus, totalmem } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
@@ -45,6 +46,9 @@ try {
       break;
     case "status":
       await status(parts);
+      break;
+    case "environment":
+      environment();
       break;
     default:
       throw new Error("unsupported runner command");
@@ -154,12 +158,18 @@ async function benchmark(
         verdict: attemptResult.verdict,
         durationsNs: null,
         medianNs: null,
+        error: attemptResult.error,
       };
     }
     const comparison = await compareOutput(attemptResult.outputPath, expected);
     await removeAttemptWork(id, dataset, attempt);
     if (comparison.isErr())
-      return { verdict: "wrong_answer", durationsNs: null, medianNs: null };
+      return {
+        verdict: "wrong_answer",
+        durationsNs: null,
+        medianNs: null,
+        error: comparison.error.message,
+      };
     durations.push(attemptResult.durationNs);
   }
   const sorted = [...durations].sort((a, b) => {
@@ -171,6 +181,7 @@ async function benchmark(
     verdict: "accepted",
     durationsNs: durations as [string, string, string],
     medianNs: sorted[1]!,
+    error: null,
   };
 }
 
@@ -215,7 +226,7 @@ async function runAttempt(
     "--mount",
     `type=bind,src=${input},dst=/input/data.csv,readonly`,
     config.RUNNER_IMAGE,
-    "/opt/node/bin/node",
+    "/opt/bun/bin/bun",
     "/opt/1brc/measure.mjs",
     kind,
     containerArtifact,
@@ -234,6 +245,7 @@ async function runAttempt(
     const result = JSON.parse(raw.trim()) as {
       verdict: Verdict;
       durationNs: string | null;
+      error: string | null;
     };
     if (result.verdict === "accepted") {
       const outputStats = await stat(output);
@@ -241,6 +253,7 @@ async function runAttempt(
         return {
           verdict: "output_limit" as const,
           durationNs: null,
+          error: "出力サイズの上限を超えました",
           outputPath: output,
         };
     }
@@ -284,6 +297,17 @@ async function status(args: string[]) {
   }
 }
 
+function environment() {
+  const processors = cpus();
+  const model = processors[0]?.model.trim() ?? "Unknown CPU";
+  process.stdout.write(
+    `${JSON.stringify({
+      cpu: `${model} · ${processors.length} logical CPUs · ${arch()}`,
+      memory: `${(totalmem() / 1024 ** 3).toFixed(1)} GiB`,
+    })}\n`,
+  );
+}
+
 function jobDirectory(id: string) {
   return join(config.RUNNER_ROOT, "jobs", id);
 }
@@ -291,7 +315,7 @@ function artifactPath(id: string, kind: string) {
   return join(jobDirectory(id), `artifact${artifactExtension(kind)}`);
 }
 function artifactExtension(kind: string) {
-  return kind === "typescript"
+  return kind === "typescript" || kind === "bun"
     ? ".ts"
     : kind === "javascript"
       ? ".js"

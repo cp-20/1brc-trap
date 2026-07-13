@@ -245,6 +245,10 @@ static void write_result(FILE *output, Map *map) {
 int main(int argc, char **argv) {
   const char *input_path = NULL;
   const char *output_path = NULL;
+  if (argc == 3 && argv[1][0] != '-' && argv[2][0] != '-') {
+    input_path = argv[1];
+    output_path = argv[2];
+  } else {
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
       input_path = argv[++i];
@@ -254,6 +258,7 @@ int main(int argc, char **argv) {
       fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
       return 1;
     }
+  }
   }
 
   FILE *input = input_path == NULL ? stdin : fopen(input_path, "r");

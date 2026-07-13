@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/csv"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -71,17 +70,18 @@ func monthLabelFromUnixTimestamp(timestamp int64) (string, error) {
 }
 
 func main() {
-	input := flag.String("i", "", "input CSV file path; default is stdin")
-	output := flag.String("o", "", "output file path; default is stdout")
-	flag.Parse()
+	input, output, err := parseArgs(os.Args[1:])
+	if err != nil {
+		exitWithError(err.Error())
+	}
 
-	reader, closeReader, err := openInput(*input)
+	reader, closeReader, err := openInput(input)
 	if err != nil {
 		exitWithError(err.Error())
 	}
 	defer closeReader()
 
-	writer, closeWriter, err := openOutput(*output)
+	writer, closeWriter, err := openOutput(output)
 	if err != nil {
 		exitWithError(err.Error())
 	}
@@ -94,6 +94,32 @@ func main() {
 	if err := writeResult(writer, stats); err != nil {
 		exitWithError(err.Error())
 	}
+}
+
+func parseArgs(args []string) (string, string, error) {
+	if len(args) == 2 && args[0][0] != '-' && args[1][0] != '-' {
+		return args[0], args[1], nil
+	}
+	var input, output string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-i":
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("missing value for -i")
+			}
+			i++
+			input = args[i]
+		case "-o":
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("missing value for -o")
+			}
+			i++
+			output = args[i]
+		default:
+			return "", "", fmt.Errorf("unknown argument: %s", args[i])
+		}
+	}
+	return input, output, nil
 }
 
 func analyze(r io.Reader) (map[string]*channelStats, error) {

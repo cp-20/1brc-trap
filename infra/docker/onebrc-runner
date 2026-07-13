@@ -8,4 +8,4 @@ export RUNNER_PRIVATE_INPUT="${RUNNER_PRIVATE_INPUT:-/var/lib/1brc/data/private.
 export RUNNER_PRIVATE_EXPECTED="${RUNNER_PRIVATE_EXPECTED:-/var/lib/1brc/data/private.expected}"
 export BENCHMARK_ENVIRONMENT_ID="${BENCHMARK_ENVIRONMENT_ID:-local-ubuntu26-v1}"
 export RUNNER_TIMEOUT_SECONDS="${RUNNER_TIMEOUT_SECONDS:-900}"
-exec /opt/node/bin/node /opt/1brc/runner/gateway.js
+exec /opt/bun/bin/bun /opt/1brc/runner/gateway.js

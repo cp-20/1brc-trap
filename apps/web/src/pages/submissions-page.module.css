@@ -1,0 +1,309 @@
+.page {
+  overflow-anchor: none;
+}
+
+.table {
+  table-layout: auto;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 22px;
+}
+
+.numberCell {
+  width: 96px;
+  color: #91a2b2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.scoreCell {
+  width: 290px;
+}
+
+.scorePart strong {
+  display: block;
+  color: #edf8fd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.scorePart small {
+  display: block;
+  margin-bottom: 3px;
+  color: #657789;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.scorePair {
+  display: flex;
+  align-items: stretch;
+}
+
+.scorePart {
+  min-width: 112px;
+}
+
+.scorePart + .scorePart {
+  margin-left: 14px;
+  padding-left: 14px;
+  border-left: 1px solid #35414d;
+}
+
+.unpublishedScore {
+  color: #718190 !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+}
+
+.errorScore {
+  color: #ff9eaa !important;
+}
+
+.measuring {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  color: #8bdfff !important;
+}
+
+.measuring i {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3d5d6d;
+  border-top-color: #20beff;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.fileCell {
+  min-width: 150px;
+}
+
+.fileCell > strong {
+  display: block;
+  color: #d8e3ec;
+  font-size: 13px;
+}
+
+.fileCell > small {
+  display: block;
+  max-width: 160px;
+  overflow: hidden;
+  color: #8492a1;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.newSubmission {
+  background: #192c39;
+}
+
+.progress {
+  padding: 22px 24px;
+  border: 1px solid #35627a;
+  background: #15232c;
+}
+
+.progressHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.progressHeading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.progressHeading > div > span {
+  color: #74cdec;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.progressHeading strong {
+  color: #f0f7fb;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  position: relative;
+  display: grid;
+  grid-template-rows: 26px auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  color: #718190;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.steps li:not(:last-child)::after {
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  left: 34px;
+  height: 2px;
+  background: #344654;
+  content: "";
+  transition: background-color 240ms ease-out;
+}
+
+.steps li > span {
+  padding-right: 12px;
+  line-height: 1.35;
+}
+
+.queueCount {
+  position: relative;
+  top: 1px;
+  display: inline-flex;
+  align-items: baseline;
+  margin-left: 0.25em;
+  white-space: nowrap;
+}
+
+.steps li i {
+  z-index: 1;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 2px solid #516170;
+  border-radius: 50%;
+  background: #15232c;
+  color: #718190;
+  font-size: 10px;
+  font-style: normal;
+  transition:
+    border-color 240ms ease-out,
+    background-color 240ms ease-out,
+    color 240ms ease-out;
+}
+
+.steps li i :global(.loading) {
+  width: 12px;
+  height: 12px;
+  color: #20beff;
+}
+
+.steps li.done,
+.steps li.current {
+  color: #c6d5df;
+}
+
+.steps li.done i {
+  border-color: #20beff;
+  background: #20beff;
+  color: #061319;
+  animation: step-complete 320ms ease-out;
+}
+
+.steps li.done:not(:last-child)::after {
+  background: #177fa5;
+}
+
+.steps li.current i {
+  border-color: #20beff;
+  color: #8fe3ff;
+  outline: 4px solid rgb(32 190 255 / 12%);
+}
+
+.errorDetail,
+.errorDetails pre {
+  overflow: auto;
+  max-height: 220px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #643e48;
+  background: #21171c;
+  color: #e6afb7;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes step-complete {
+  from {
+    transform: scale(0.75);
+  }
+
+  65% {
+    transform: scale(1.12);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measuring i,
+  .steps li.done i {
+    animation: none;
+  }
+}
+
+.errorDetails {
+  margin: 0;
+  color: #c8929b;
+  font-size: 11px;
+}
+
+.errorDetails summary {
+  cursor: pointer;
+}
+
+.errorDetails pre {
+  margin-top: 6px;
+  border-width: 0 0 0 2px;
+}
+
+.rowWithError td {
+  padding-bottom: 8px;
+  border-bottom: 0 !important;
+}
+
+.errorRow td {
+  padding: 0 22px 13px !important;
+  border-top: 0;
+  border-bottom: 1px solid #293440;
+  background: inherit;
+}
+
+.rowWithError:hover + .errorRow,
+.rowWithError:has(+ .errorRow:hover),
+.errorRow:hover {
+  background: #19232e;
+}
+
+.errorRow .errorDetails pre {
+  width: 100%;
+  max-height: 280px;
+}

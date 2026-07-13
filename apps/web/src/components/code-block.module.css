@@ -1,0 +1,28 @@
+.block {
+  overflow-x: auto;
+  margin: 12px 0;
+  padding: 13px;
+  border: 1px solid #2e3945;
+  border-radius: 5px;
+  background: #10161e;
+  color: #cce7f5;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.highlighted {
+  padding: 0;
+}
+
+.highlighted :global(.shiki) {
+  min-width: max-content;
+  margin: 0;
+  padding: 13px;
+  background: transparent !important;
+  font: inherit;
+}
+
+.block code {
+  white-space: pre;
+}
