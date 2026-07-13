@@ -12,6 +12,13 @@
   border-left: 1px solid #303b48;
 }
 
+.tocTitle {
+  padding: 0 0 7px 15px;
+  color: #d9e4ec;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .toc a {
   padding: 7px 0 7px 15px;
   color: #8e9cac;
@@ -325,8 +332,9 @@
 
 .environmentGrid div {
   display: grid;
-  grid-template-columns: 100px 1fr;
+  grid-template-columns: 100px minmax(0, 1fr);
   gap: 12px;
+  align-items: start;
   padding: 9px 0;
   border-bottom: 1px solid #26313d;
 }
@@ -349,6 +357,7 @@
   margin: 0;
   color: #c5d1dc;
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .libraries {
@@ -375,6 +384,61 @@
   font-size: 13px;
 }
 
+.tocSkeleton {
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  padding: 9px 0 9px 15px;
+  border-left: 1px solid #303b48;
+}
+
+.tocSkeleton span {
+  width: 105px;
+  height: 12px;
+}
+
+.documentSkeleton {
+  min-width: 0;
+  padding: 8px 0 44px;
+  border-bottom: 1px solid #303b48;
+}
+
+.skeletonNumber {
+  width: 22px;
+  height: 10px;
+  margin-bottom: 10px;
+}
+
+.skeletonHeading {
+  width: 110px;
+  height: 28px;
+  margin-bottom: 22px;
+}
+
+.skeletonLine,
+.skeletonLineShort {
+  width: 100%;
+  height: 14px;
+  margin-bottom: 10px;
+}
+
+.skeletonLineShort {
+  width: 68%;
+}
+
+.skeletonPanel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid #303b48;
+}
+
+.skeletonPanel span {
+  height: 28px;
+}
+
 @media (max-width: 960px) {
   .document {
     grid-template-columns: 1fr;
@@ -383,22 +447,14 @@
 
   .toc {
     position: static;
-    grid-template-columns: repeat(5, auto);
-    overflow-x: auto;
-    border-bottom: 1px solid #303b48;
-    border-left: 0;
+    border-left: 1px solid #303b48;
   }
 
   .toc a {
-    padding: 8px 12px;
-    white-space: nowrap;
+    padding: 7px 0 7px 15px;
   }
-}
 
-@media (max-width: 720px) {
-  .ruleColumns,
-  .environmentGrid,
-  .taskFlow {
+  .environmentGrid {
     grid-template-columns: 1fr;
   }
 
@@ -414,6 +470,17 @@
   .environment summary::after {
     grid-row: 1 / span 2;
     grid-column: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .ruleColumns,
+  .taskFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .submitButton {
+    display: none;
   }
 
   .taskFlow li + li {
@@ -431,6 +498,10 @@
   }
 
   .libraries {
+    grid-template-columns: 1fr;
+  }
+
+  .skeletonPanel {
     grid-template-columns: 1fr;
   }
 }

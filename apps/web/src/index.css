@@ -22,7 +22,6 @@ html {
   overflow-y: scroll;
 }
 body {
-  min-width: 320px;
   min-height: 100vh;
   margin: 0;
   background: #10151c;
@@ -58,6 +57,25 @@ a {
 .mono-number,
 code {
   font-variant-numeric: tabular-nums;
+}
+.skeleton-block {
+  display: block;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #222c37 25%, #2d3946 50%, #222c37 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+  }
 }
 
 .app-shell {
@@ -365,7 +383,7 @@ code {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 .segment-control {
   display: inline-flex;
@@ -535,7 +553,6 @@ code {
   .account-button span {
     display: none;
   }
-  .toolbar,
   .page-header {
     align-items: flex-start;
     flex-direction: column;
@@ -547,8 +564,21 @@ code {
     padding-right: 11px;
     padding-left: 11px;
   }
-  .ranking-table th:nth-child(5),
-  .ranking-table td:nth-child(5) {
-    display: none;
+}
+
+@media (max-width: 310px) {
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .panel-heading {
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .panel-heading h2,
+  .panel-heading .text-link {
+    white-space: nowrap;
   }
 }

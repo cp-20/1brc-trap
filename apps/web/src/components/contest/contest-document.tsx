@@ -30,6 +30,7 @@ export function ContestDocument({
   return (
     <div className={styles.document}>
       <aside className={styles.toc} aria-label="ページ内メニュー">
+        <strong className={styles.tocTitle}>目次</strong>
         <a href="#overview">概要</a>
         <a href="#input-output">入力と出力</a>
         <a href="#scoring">採点方法</a>

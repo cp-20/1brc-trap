@@ -3,6 +3,45 @@
   overflow-y: clip;
 }
 
+.skeletonRow td {
+  height: 51px;
+}
+
+.skeletonRow td > span {
+  width: 62px;
+  height: 12px;
+}
+
+.skeletonRow .rankColumn > span {
+  width: 18px;
+}
+
+.skeletonRow .languageColumn > span {
+  width: 72px;
+}
+
+.skeletonRow .dateColumn > span {
+  width: 84px;
+}
+
+.skeletonRow .userColumn > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.skeletonRow .userColumn span:first-child {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.skeletonRow .userColumn span:last-child {
+  width: 92px;
+  height: 12px;
+}
+
 .updatedRowA > td {
   animation: updated-row-pulse-a 2.2s ease-out 240ms;
 }
@@ -105,5 +144,74 @@
 @media (min-width: 721px) {
   .compactViewport {
     overflow-x: clip;
+  }
+}
+
+@media (max-width: 720px) {
+  .viewport {
+    overflow-x: clip;
+  }
+
+  .viewport table {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .languageColumn,
+  .dateColumn {
+    display: none;
+  }
+
+  .rankColumn {
+    width: 38px !important;
+  }
+
+  .scoreColumn {
+    width: 88px;
+  }
+
+  .sourceColumn {
+    width: 36px;
+  }
+
+  .viewport :global(.ranking-table) th,
+  .viewport :global(.ranking-table) td {
+    padding: 10px 6px;
+  }
+
+  .viewport :global(.ranking-rank) {
+    font-size: 14px;
+  }
+
+  .viewport :global(.ranking-rank-value) {
+    display: grid;
+    gap: 1px;
+  }
+
+  .viewport :global(.user-cell) {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .viewport :global(.user-cell img) {
+    width: 20px;
+    height: 20px;
+  }
+
+  .viewport :global(.user-cell span) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .runtimeValue {
+    display: block;
+  }
+
+  .runtimeDiffSlot {
+    display: block;
+    width: auto;
+    min-height: 0;
+    margin-top: 2px;
   }
 }

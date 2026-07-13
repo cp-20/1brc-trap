@@ -37,21 +37,48 @@ export function LeaderboardTable({
     <>
       <div
         className={`${styles.viewport} ${compact ? styles.compactViewport : ""}`}
+        aria-busy={!initialized}
       >
         <table
           className={`ranking-table ${compact ? "ranking-table-compact" : ""}`}
         >
           <thead>
             <tr>
-              <th>順位</th>
-              <th>ユーザー</th>
-              <th>言語</th>
-              <th>実行時間</th>
-              {!compact && <th>提出日時</th>}
-              <th aria-label="ソースコード" />
+              <th className={styles.rankColumn}>順位</th>
+              <th className={styles.userColumn}>ユーザー</th>
+              <th className={styles.languageColumn}>言語</th>
+              <th className={styles.scoreColumn}>実行時間</th>
+              {!compact && <th className={styles.dateColumn}>提出日時</th>}
+              <th className={styles.sourceColumn} aria-label="ソースコード" />
             </tr>
           </thead>
           <tbody ref={entries.length > 0 ? animationParent : undefined}>
+            {!initialized &&
+              Array.from({ length: compact ? 5 : 8 }, (_, index) => (
+                <tr key={index} className={styles.skeletonRow} aria-hidden>
+                  <td className={styles.rankColumn}>
+                    <span className="skeleton-block" />
+                  </td>
+                  <td className={styles.userColumn}>
+                    <div>
+                      <span className="skeleton-block" />
+                      <span className="skeleton-block" />
+                    </div>
+                  </td>
+                  <td className={styles.languageColumn}>
+                    <span className="skeleton-block" />
+                  </td>
+                  <td className={styles.scoreColumn}>
+                    <span className="skeleton-block" />
+                  </td>
+                  {!compact && (
+                    <td className={styles.dateColumn}>
+                      <span className="skeleton-block" />
+                    </td>
+                  )}
+                  <td className={styles.sourceColumn} />
+                </tr>
+              ))}
             {entries.map((entry) => {
               const update = updates.get(entry.username);
               return (
@@ -65,7 +92,7 @@ export function LeaderboardTable({
                       : undefined
                   }
                 >
-                  <td className="ranking-rank">
+                  <td className={`ranking-rank ${styles.rankColumn}`}>
                     <div className="ranking-rank-value">
                       <strong>
                         {entry.rank === null ? (
@@ -96,7 +123,7 @@ export function LeaderboardTable({
                       )}
                     </div>
                   </td>
-                  <td>
+                  <td className={styles.userColumn}>
                     <div className="user-cell">
                       <img
                         src={avatarUrl(entry.username, 48)}
@@ -108,12 +135,14 @@ export function LeaderboardTable({
                       <span>{entry.username}</span>
                     </div>
                   </td>
-                  <td>
+                  <td className={styles.languageColumn}>
                     <span className="language-chip">
                       {languageLabel(entry.language)}
                     </span>
                   </td>
-                  <td className="mono-number ranking-score">
+                  <td
+                    className={`mono-number ranking-score ${styles.scoreColumn}`}
+                  >
                     {entry.verdict === "accepted" ? (
                       <div className={styles.runtimeValue}>
                         <AnimatedDuration nanoseconds={entry.scoreNs} />
@@ -133,11 +162,11 @@ export function LeaderboardTable({
                     )}
                   </td>
                   {!compact && (
-                    <td className="muted-cell">
+                    <td className={`muted-cell ${styles.dateColumn}`}>
                       {formatDate(entry.submittedAt)}
                     </td>
                   )}
-                  <td>
+                  <td className={styles.sourceColumn}>
                     {entry.sourceAvailable && (
                       <button
                         type="button"
@@ -155,7 +184,9 @@ export function LeaderboardTable({
             })}
           </tbody>
         </table>
-        {entries.length === 0 && <Empty text="表示できる記録がありません" />}
+        {initialized && entries.length === 0 && (
+          <Empty text="表示できる記録がありません" />
+        )}
       </div>
       <SourceDialog
         submissionId={sourceEntry?.submissionId ?? null}

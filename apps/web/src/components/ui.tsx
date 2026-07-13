@@ -34,14 +34,6 @@ export function Panel({
   return <section className={`panel ${className}`}>{children}</section>;
 }
 
-export function Loading() {
-  return (
-    <div className="grid min-h-72 place-items-center">
-      <span className="loading loading-spinner loading-lg text-primary" />
-    </div>
-  );
-}
-
 export function Empty({ text }: { text: string }) {
   return <div className="empty-state">{text}</div>;
 }
