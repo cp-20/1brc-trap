@@ -1,5 +1,5 @@
 onebrc_runner_public_key: "ssh-ed25519 AAAA... application-worker"
-onebrc_environment_id: "r7i-4xlarge-ubuntu26-v1"
+onebrc_environment_id: "r7i-2xlarge-ubuntu26-v1"
 onebrc_runner_image: "onebrc-runner:ubuntu26-v1"
 onebrc_public_input: "/var/lib/1brc/data/public.csv"
 onebrc_public_expected: "/var/lib/1brc/data/public.expected"

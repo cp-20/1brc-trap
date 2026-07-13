@@ -34,9 +34,9 @@ const envSchema = z.object({
     .regex(/^(?:SHA256:)?[A-Za-z0-9+/]+={0,2}$/)
     .optional(),
   BENCHMARK_ENVIRONMENT_ID: z.string().min(1),
-  BENCHMARK_INSTANCE_TYPE: z.string().default("r7i.4xlarge"),
-  BENCHMARK_CPU: z.string().default("16 vCPU"),
-  BENCHMARK_MEMORY: z.string().default("128 GiB"),
+  BENCHMARK_INSTANCE_TYPE: z.string().default("r7i.2xlarge"),
+  BENCHMARK_CPU: z.string().default("8 vCPU"),
+  BENCHMARK_MEMORY: z.string().default("64 GiB"),
   BENCHMARK_RUNNER_IMAGE: z.string().min(1),
   BENCHMARK_KERNEL: z.string().default("Ubuntu 26.04 standard kernel"),
   BENCHMARK_DOCKER_VERSION: z.string().default("29.x"),

@@ -1,7 +1,7 @@
 {
   "OneBrcBenchmarkStack": {
     "BenchmarkPublicIp": "54.248.94.210",
-    "BenchmarkEnvironment": "r7i-4xlarge-ubuntu26-v1",
+    "BenchmarkEnvironment": "r7i-2xlarge-ubuntu26-v1",
     "BenchmarkInstanceId": "i-00276458ce3dad593"
   }
 }

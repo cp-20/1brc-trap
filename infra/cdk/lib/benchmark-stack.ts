@@ -13,7 +13,7 @@ export class BenchmarkStack extends Stack {
 
     const instanceType =
       (this.node.tryGetContext("instanceType") as string | undefined) ??
-      "r7i.4xlarge";
+      "r7i.2xlarge";
     const allowedSshCidr =
       (this.node.tryGetContext("allowedSshCidr") as string | undefined) ??
       "0.0.0.0/0";
@@ -24,7 +24,7 @@ export class BenchmarkStack extends Stack {
     );
     const environmentId =
       (this.node.tryGetContext("benchmarkEnvironmentId") as
-        string | undefined) ?? "r7i-4xlarge-ubuntu26-v1";
+        string | undefined) ?? "r7i-2xlarge-ubuntu26-v1";
     if (!keyPairName) throw new Error("CDK context keyPairName is required");
     if (!Number.isInteger(volumeSizeGiB) || volumeSizeGiB < 100)
       throw new Error("volumeSizeGiB must be at least 100");

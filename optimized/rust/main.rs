@@ -301,6 +301,11 @@ fn options() -> Result<Options, String> {
             .unwrap_or(1),
         profile: false,
     };
+    if a.len() == 2 && !a[0].starts_with('-') && !a[1].starts_with('-') {
+        o.input = a[0].clone();
+        o.output = a[1].clone();
+        return Ok(o);
+    }
     let mut i = 0;
     while i < a.len() {
         match a[i].as_str() {

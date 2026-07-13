@@ -150,12 +150,26 @@ fn analyzeWorker(w: *Worker) void {
 
 const Options = struct { input: []const u8 = "", output: []const u8 = "", threads: usize = 1, profile: bool = false };
 fn parseArgs(a: Allocator) !Options {
-    var args = try std.process.argsWithAllocator(a);
-    defer args.deinit();
-    _ = args.next();
+    const args = try std.process.argsAlloc(a);
+    defer std.process.argsFree(a, args);
     var o = Options{ .threads = std.Thread.getCpuCount() catch 1 };
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--input")) o.input = try a.dupe(u8, args.next() orelse return error.MissingArgument) else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--output")) o.output = try a.dupe(u8, args.next() orelse return error.MissingArgument) else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--threads")) o.threads = try std.fmt.parseInt(usize, args.next() orelse return error.MissingArgument, 10) else if (std.mem.eql(u8, arg, "--profile")) o.profile = true else return error.UnknownArgument;
+    if (args.len == 3 and !std.mem.startsWith(u8, args[1], "-") and !std.mem.startsWith(u8, args[2], "-")) return .{ .input = try a.dupe(u8, args[1]), .output = try a.dupe(u8, args[2]), .threads = o.threads };
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-i") or std.mem.eql(u8, arg, "--input")) {
+            i += 1;
+            if (i >= args.len) return error.MissingArgument;
+            o.input = try a.dupe(u8, args[i]);
+        } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--output")) {
+            i += 1;
+            if (i >= args.len) return error.MissingArgument;
+            o.output = try a.dupe(u8, args[i]);
+        } else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--threads")) {
+            i += 1;
+            if (i >= args.len) return error.MissingArgument;
+            o.threads = try std.fmt.parseInt(usize, args[i], 10);
+        } else if (std.mem.eql(u8, arg, "--profile")) o.profile = true else return error.UnknownArgument;
     }
     if (o.input.len == 0 or o.threads == 0) return error.InvalidArguments;
     return o;

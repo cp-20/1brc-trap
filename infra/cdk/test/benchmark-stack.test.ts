@@ -9,7 +9,7 @@ describe("BenchmarkStack", () => {
       context: {
         allowedSshCidr: "203.0.113.10/32",
         keyPairName: "test-key",
-        instanceType: "r7i.4xlarge",
+        instanceType: "r7i.2xlarge",
       },
     });
     const stack = new BenchmarkStack(app, "TestStack");
@@ -25,7 +25,7 @@ describe("BenchmarkStack", () => {
       ]),
     });
     template.hasResourceProperties("AWS::EC2::Instance", {
-      InstanceType: "r7i.4xlarge",
+      InstanceType: "r7i.2xlarge",
       ImageId: Match.anyValue(),
     });
     template.hasResourceProperties("AWS::EC2::LaunchTemplate", {
@@ -43,6 +43,9 @@ describe("BenchmarkStack", () => {
       SecurityGroupIngress: Match.arrayWith([
         Match.objectLike({ CidrIp: "0.0.0.0/0", FromPort: 22, ToPort: 22 }),
       ]),
+    });
+    template.hasResourceProperties("AWS::EC2::Instance", {
+      InstanceType: "r7i.2xlarge",
     });
   });
 });

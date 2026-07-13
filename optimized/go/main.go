@@ -12,6 +12,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -126,7 +127,11 @@ func main() {
 	profileEnabled := flag.Bool("profile", false, "print timing profile to stderr")
 	showProgress := flag.Bool("progress", false, "print input progress to stderr")
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
-	flag.Parse()
+	if len(os.Args) == 3 && !strings.HasPrefix(os.Args[1], "-") && !strings.HasPrefix(os.Args[2], "-") {
+		*input, *output = os.Args[1], os.Args[2]
+	} else {
+		flag.Parse()
+	}
 
 	if *input == "" {
 		exitWithError("optimized Go analyzer requires -i")

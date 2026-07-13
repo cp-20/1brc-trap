@@ -257,7 +257,13 @@ int main(int argc, char **argv) {
   const char *input = NULL, *output = NULL;
   long threads = sysconf(_SC_NPROCESSORS_ONLN);
   int profile = 0;
-  for (int i = 1; i < argc; i++) {
+  int first_option = 1;
+  if (argc == 3 && argv[1][0] != '-' && argv[2][0] != '-') {
+    input = argv[1];
+    output = argv[2];
+    first_option = argc;
+  }
+  for (int i = first_option; i < argc; i++) {
     if ((!strcmp(argv[i], "-i") || !strcmp(argv[i], "--input")) && i + 1 < argc)
       input = argv[++i];
     else if ((!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) &&

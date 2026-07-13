@@ -52,6 +52,7 @@
       ansible.builtin.apt:
         name:
           - ca-certificates
+          - docker-buildx
           - docker.io
           - unzip
           - xz-utils
@@ -84,6 +85,7 @@
         - { path: /opt/1brc, mode: "0755" }
         - { path: /opt/1brc/runner, mode: "0755" }
         - { path: /opt/1brc/apps/runner/image, mode: "0755" }
+        - { path: /var/lib/1brc, mode: "0755" }
         - { path: /var/lib/1brc/jobs, mode: "0700" }
         - { path: /var/lib/1brc/data, mode: "0755" }
         - { path: /var/lib/1brc/work, mode: "1777" }
@@ -118,7 +120,6 @@
         owner: root
         group: root
         mode: "0644"
-      notify: Rebuild runner image
 
     - name: runner imageのbuild contextを配置する
       ansible.builtin.copy:
@@ -127,7 +128,13 @@
         owner: root
         group: root
         mode: "0644"
-      notify: Rebuild runner image
+
+    - name: runner imageをbuildする
+      community.docker.docker_image_build:
+        name: "{{ onebrc_runner_image }}"
+        path: /opt/1brc
+        dockerfile: apps/runner/image/Dockerfile
+        rebuild: always
 
     - name: runnerの環境変数を設定する
       ansible.builtin.template:
@@ -237,12 +244,3 @@
         enabled: true
         state: started
         daemon_reload: true
-
-  handlers:
-    - name: runner imageを再buildする
-      listen: Rebuild runner image
-      community.docker.docker_image_build:
-        name: "{{ onebrc_runner_image }}"
-        path: /opt/1brc
-        dockerfile: apps/runner/image/Dockerfile
-        rebuild: always

@@ -8,6 +8,8 @@ MONTH_BY_DAY = Array.new(365) { |d| MONTH_START.bsearch_index { |x| x > YEAR_STA
 
 def options(argv)
   o = { input: nil, output: nil, threads: Etc.nprocessors, profile: false }
+  return o.merge(input: argv[0], output: argv[1]) if argv.length == 2 && argv.none? { |arg| arg.start_with?("-") }
+
   i = 0
   while i < argv.length
     case argv[i]

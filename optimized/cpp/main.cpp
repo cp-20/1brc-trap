@@ -337,7 +337,13 @@ int main(int argc, char **argv) {
   std::string input, output;
   unsigned threads = std::max(1u, std::thread::hardware_concurrency());
   bool profiling = false;
-  for (int i = 1; i < argc; ++i) {
+  int first_option = 1;
+  if (argc == 3 && argv[1][0] != '-' && argv[2][0] != '-') {
+    input = argv[1];
+    output = argv[2];
+    first_option = argc;
+  }
+  for (int i = first_option; i < argc; ++i) {
     std::string_view a(argv[i]);
     if ((a == "-i" || a == "--input") && i + 1 < argc)
       input = argv[++i];
