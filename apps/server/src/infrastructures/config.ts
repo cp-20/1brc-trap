@@ -22,6 +22,7 @@ const envSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().min(1),
   R2_SECRET_ACCESS_KEY: z.string().min(1),
   R2_ENDPOINT: z.string().url().optional(),
+  R2_INTERNAL_ENDPOINT: z.string().url().optional(),
   RUNNER_SSH_HOST: z.string().min(1),
   RUNNER_SSH_PORT: z.coerce.number().int().positive().default(22),
   RUNNER_SSH_USER: z.string().min(1).default("onebrc"),

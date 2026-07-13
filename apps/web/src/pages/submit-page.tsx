@@ -93,15 +93,7 @@ export function SubmitPage() {
             onSubmit={() => submit.mutate()}
           />
         </div>
-      ) : (
-        <Panel className={styles.availability!}>
-          <span className={`skeleton-block ${styles.availabilityIcon}`} />
-          <div aria-label="提出受付状況を読み込み中">
-            <span className={`skeleton-block ${styles.availabilityTitle}`} />
-            <span className={`skeleton-block ${styles.availabilityText}`} />
-          </div>
-        </Panel>
-      )}
+      ) : null}
     </div>
   );
 }

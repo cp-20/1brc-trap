@@ -50,16 +50,7 @@ export function DashboardPage() {
     <div className="page-stack">
       <section className={styles.hero}>
         <p className={styles.eyebrow}>OPTIMIZATION CONTEST</p>
-        <h1>
-          {contest.data ? (
-            contest.data.name
-          ) : (
-            <span
-              className={`skeleton-block ${styles.skeletonTitle}`}
-              aria-label="コンテスト名を読み込み中"
-            />
-          )}
-        </h1>
+        <h1>{contest.data?.name ?? "1BRC for traP"}</h1>
         <p>traQ風CSVを集計するプログラムの実行時間を競うコンテストです。</p>
         {started && (
           <div className={styles.actions}>

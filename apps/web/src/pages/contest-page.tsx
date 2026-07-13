@@ -59,13 +59,12 @@ export function ContestPage() {
       ) : contest.isError ? (
         <ErrorAlert message={contest.error.message} />
       ) : (
-        <Panel
-          className={styles.stateSkeleton!}
-          aria-label="コンテストを読み込み中"
-        >
-          <span className="skeleton-block" />
-          <span className="skeleton-block" />
-        </Panel>
+        <div className={styles.loadingState}>
+          <span
+            className="loading loading-spinner"
+            aria-label="コンテストを読み込み中"
+          />
+        </div>
       )}
     </div>
   );

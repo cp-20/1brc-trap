@@ -11,23 +11,28 @@ import { AppError } from "../utils/errors.js";
 export type R2Signer = ReturnType<typeof createR2Signer>;
 
 export function createR2Signer(config: Config) {
-  const endpoint =
+  const publicEndpoint =
     config.R2_ENDPOINT ??
     `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  const client = new S3Client({
-    region: "auto",
-    endpoint,
-    forcePathStyle: endpoint.startsWith("http://"),
-    credentials: {
-      accessKeyId: config.R2_ACCESS_KEY_ID,
-      secretAccessKey: config.R2_SECRET_ACCESS_KEY,
-    },
-  });
+  const createClient = (endpoint: string) =>
+    new S3Client({
+      region: "auto",
+      endpoint,
+      forcePathStyle: endpoint.startsWith("http://"),
+      credentials: {
+        accessKeyId: config.R2_ACCESS_KEY_ID,
+        secretAccessKey: config.R2_SECRET_ACCESS_KEY,
+      },
+    });
+  const publicClient = createClient(publicEndpoint);
+  const internalClient = config.R2_INTERNAL_ENDPOINT
+    ? createClient(config.R2_INTERNAL_ENDPOINT)
+    : publicClient;
 
   return {
     verifyObject(objectKey: string) {
       return ResultAsync.fromPromise(
-        client
+        internalClient
           .send(
             new HeadObjectCommand({
               Bucket: config.R2_BUCKET_NAME,
@@ -47,7 +52,7 @@ export function createR2Signer(config: Config) {
     signDownload(objectKey: string, filename: string) {
       return ResultAsync.fromPromise(
         getSignedUrl(
-          client,
+          publicClient,
           new GetObjectCommand({
             Bucket: config.R2_BUCKET_NAME,
             Key: objectKey,

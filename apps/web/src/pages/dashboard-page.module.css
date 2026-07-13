@@ -111,11 +111,6 @@
   line-height: 1.35;
 }
 
-.skeletonTitle {
-  width: min(480px, 72%);
-  height: 1em;
-}
-
 .skeletonMetaLabel {
   width: 62px;
   height: 11px;
