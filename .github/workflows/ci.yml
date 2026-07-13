@@ -88,7 +88,7 @@ jobs:
           curl -fsS -c /tmp/onebrc-cookie -o /dev/null 'http://localhost:8080/_oauth/login?redirect=/'
           curl -fsS -b /tmp/onebrc-cookie -H 'Origin: http://localhost:8080' -H 'Content-Type: application/json' --data-binary @data/contest/manifest.json http://localhost:8080/api/v1/admin/datasets/import
           key=$(curl -fsS -b /tmp/onebrc-cookie -H 'Origin: http://localhost:8080' -X POST http://localhost:8080/api/v1/access-key | jq -r .accessKey)
-          response=$(curl -fsS -H "Authorization: Bearer $key" -F executionKind=typescript -F source=@baselines/typescript/main.ts http://localhost:8080/api/v1/submissions)
+          response=$(curl -fsS -H "Authorization: Bearer $key" -F executionKind=typescript -F source=@baselines/ts/main.ts http://localhost:8080/api/v1/submissions)
           id=$(printf '%s' "$response" | jq -r .id)
           for attempt in $(seq 1 90); do
             state=$(curl -fsS -H "Authorization: Bearer $key" "http://localhost:8080/api/v1/submissions/$id")
@@ -99,7 +99,7 @@ jobs:
           done
           test "$(printf '%s' "$state" | jq -r .submission.public.verdict)" = accepted
           test "$(docker compose exec -T mariadb mariadb -N -uonebrc -ponebrc onebrc -e "SELECT COUNT(*) FROM benchmark_runs WHERE submission_id='$id' AND verdict='accepted'")" = 6
-          bun_response=$(curl -fsS -H "Authorization: Bearer $key" -F executionKind=bun -F source=@baselines/typescript/main.ts http://localhost:8080/api/v1/submissions)
+          bun_response=$(curl -fsS -H "Authorization: Bearer $key" -F executionKind=bun -F source=@baselines/ts/main.ts http://localhost:8080/api/v1/submissions)
           bun_id=$(printf '%s' "$bun_response" | jq -r .id)
           for attempt in $(seq 1 90); do
             bun_state=$(curl -fsS -H "Authorization: Bearer $key" "http://localhost:8080/api/v1/submissions/$bun_id")
