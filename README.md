@@ -62,7 +62,9 @@ docker compose watch
 - `apps/runner`：forced-command SSH gatewayとDocker計測処理
 - `apps/mock-auth`：ローカル用認証proxy
 - `packages/contracts`：Hono RPCとZodの共有contract
-- `cmd/contest_data`：データ生成とR2へのupload
+- `cmd/contest_data`：コンテストデータ操作のCLI
+- `internal/contestdata`、`internal/traqdata`、`internal/expected`：データセット生成
+- `internal/r2`：R2へのupload、download、presign
 - `infra/cloudflare`：データセット用R2 bucket
 - `infra/cdk`：計測用EC2
 - `infra/ansible`：計測ホストの構成

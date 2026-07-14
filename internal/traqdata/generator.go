@@ -1,8 +1,8 @@
-package main
+package traqdata
 
 import (
 	"bufio"
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -11,16 +11,28 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	progressbar "github.com/cp-20/1blc-trap/internal/progress"
 )
 
 const (
-	defaultRows       = 10_000_000
-	defaultChannels   = 10_000
 	defaultBufferSize = 4 * 1024 * 1024
 	maxChannelDepth   = 5
 )
+
+type Wordset string
+
+const (
+	PublicWordset  Wordset = "public"
+	PrivateWordset Wordset = "private"
+)
+
+type Options struct {
+	Rows       int64
+	Channels   int
+	Seed       int64
+	Wordset    Wordset
+	BufferSize int
+	Progress   func(int64)
+}
 
 type dayWeight struct {
 	day    time.Time
@@ -31,51 +43,33 @@ type channelProfile struct {
 	path string
 }
 
-func main() {
-	rows := flag.Int("n", defaultRows, "number of messages to generate")
-	channelCount := flag.Int("channels", defaultChannels, "number of distinct channels")
-	output := flag.String("o", "", "output file path; default is stdout")
-	seed := flag.Int64("seed", time.Now().UnixNano(), "random seed")
-	bufferSize := flag.Int("buffer", defaultBufferSize, "output buffer size in bytes")
-	showProgress := flag.Bool("progress", false, "print row progress to stderr")
-	flag.Parse()
+func GenerateFile(path string, options Options) error {
+	if options.Rows < 0 {
+		return errors.New("rows must be greater than or equal to 0")
+	}
+	if options.Channels <= 0 {
+		return errors.New("channels must be greater than 0")
+	}
+	if options.BufferSize == 0 {
+		options.BufferSize = defaultBufferSize
+	}
+	if options.BufferSize < 0 {
+		return errors.New("buffer size must be greater than 0")
+	}
+	words, ok := channelWordsets[options.Wordset]
+	if !ok {
+		return fmt.Errorf("unknown wordset %q", options.Wordset)
+	}
 
-	if *rows < 0 {
-		exit("n must be greater than or equal to 0")
-	}
-	if *channelCount <= 0 {
-		exit("channels must be greater than 0")
-	}
-	if *bufferSize <= 0 {
-		exit("buffer must be greater than 0")
-	}
-
-	writer, closeWriter, err := openWriter(*output)
+	g, err := newGenerator(rand.New(rand.NewSource(options.Seed)), options.Channels, words)
 	if err != nil {
-		exit(err.Error())
+		return err
 	}
-	defer closeWriter()
-
-	r := rand.New(rand.NewSource(*seed))
-	g := newGenerator(r, *channelCount)
-	var bar *progressbar.Bar
-	var report func(int, bool)
-	if *showProgress {
-		bar = progressbar.New(os.Stderr, int64(*rows), "rows")
-		report = func(done int, final bool) {
-			if final {
-				bar.Done(true)
-			} else {
-				bar.Set(int64(done))
-			}
-		}
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create output: %w", err)
 	}
-	if err := g.write(writer, *rows, *bufferSize, report); err != nil {
-		if bar != nil {
-			bar.Done(false)
-		}
-		exit(err.Error())
-	}
+	return errors.Join(g.write(file, options.Rows, options.BufferSize, options.Progress), file.Close())
 }
 
 type generator struct {
@@ -89,8 +83,11 @@ type generator struct {
 	channelZipf *rand.Zipf
 }
 
-func newGenerator(r *rand.Rand, channelCount int) *generator {
-	paths := buildChannelPaths(channelCount)
+func newGenerator(r *rand.Rand, channelCount int, words [][]string) (*generator, error) {
+	paths, err := buildChannelPaths(channelCount, words)
+	if err != nil {
+		return nil, err
+	}
 	channels := make([]channelProfile, channelCount)
 	for i := range channels {
 		channels[i] = channelProfile{
@@ -110,10 +107,10 @@ func newGenerator(r *rand.Rand, channelCount int) *generator {
 		hourTotal:   hourTotal,
 		channels:    channels,
 		channelZipf: rand.NewZipf(r, 1.09, 1, uint64(channelCount-1)),
-	}
+	}, nil
 }
 
-func (g *generator) write(w io.Writer, rows, bufferSize int, report func(int, bool)) error {
+func (g *generator) write(w io.Writer, rows int64, bufferSize int, report func(int64)) error {
 	buffered := bufio.NewWriterSize(w, bufferSize)
 	if _, err := buffered.WriteString("unix_timestamp,channel_path,message_length,stamp_count\n"); err != nil {
 		return err
@@ -122,14 +119,14 @@ func (g *generator) write(w io.Writer, rows, bufferSize int, report func(int, bo
 	line := make([]byte, 0, 96)
 	reportEvery := max(rows/10000, 1)
 	nextReport := reportEvery
-	for i := 0; i < rows; i++ {
+	for i := int64(0); i < rows; i++ {
 		line = g.appendRow(line[:0])
 		if _, err := buffered.Write(line); err != nil {
 			return err
 		}
 		done := i + 1
 		if report != nil && done >= nextReport && done < rows {
-			report(done, false)
+			report(done)
 			nextReport += reportEvery
 		}
 	}
@@ -138,7 +135,7 @@ func (g *generator) write(w io.Writer, rows, bufferSize int, report func(int, bo
 		return err
 	}
 	if report != nil {
-		report(rows, true)
+		report(rows)
 	}
 	return nil
 }
@@ -308,46 +305,21 @@ func geometric(r *rand.Rand, stopProbability float64) int {
 	return count
 }
 
-func openWriter(path string) (io.Writer, func(), error) {
-	if path == "" {
-		return os.Stdout, func() {}, nil
-	}
-
-	file, err := os.Create(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create output file: %w", err)
-	}
-
-	return file, func() {
-		_ = file.Close()
-	}, nil
-}
-
-func exit(message string) {
-	fmt.Fprintln(os.Stderr, message)
-	os.Exit(1)
-}
-
-func buildChannelPaths(count int) []string {
-	words := [...][]string{
-		{"team", "project", "club", "lab", "class", "event", "help", "bot", "game", "music", "art", "book", "photo", "video", "news", "data", "infra", "design", "staff", "admin", "sales", "ops", "home", "work"},
-		{"core", "dev", "web", "app", "api", "mobile", "server", "client", "data", "search", "auth", "chat", "voice", "image", "build", "test", "docs", "plan", "meet", "room", "topic", "note", "task", "release", "support", "random", "social", "media", "study", "learn", "write", "read"},
-		{"main", "alpha", "beta", "green", "blue", "red", "gold", "fast", "slow", "daily", "weekly", "night", "idea", "bug", "fix", "review", "deploy", "log", "alert", "queue", "cache", "store", "index", "job", "skill", "tool", "link", "feed", "draft", "memo", "board", "map"},
-		{"open", "close", "new", "old", "hot", "cold", "north", "south", "east", "west", "local", "global", "public", "private", "small", "large", "light", "dark", "early", "late", "first", "last", "next", "back", "front", "inner", "outer", "quiet", "active", "ready", "live", "safe"},
-		{"inbox", "outbox", "todo", "done", "wait", "hold", "sync", "async", "push", "pull", "send", "recv", "read", "write", "edit", "view", "watch", "build", "ship", "run", "test", "check", "note", "memo", "list", "grid", "feed", "chat", "voice", "call", "desk", "room"},
-	}
-
+func buildChannelPaths(count int, words [][]string) ([]string, error) {
 	paths := make([]string, 0, count)
-	targets := depthTargets(count, words[:])
+	targets, err := depthTargets(count, words)
+	if err != nil {
+		return nil, err
+	}
 	for depth, target := range targets {
 		for i := 0; i < target; i++ {
-			paths = append(paths, channelPathForIndex(words[:], depth+1, i))
+			paths = append(paths, channelPathForIndex(words, depth+1, i))
 		}
 	}
-	return paths
+	return paths, nil
 }
 
-func depthTargets(count int, words [][]string) [maxChannelDepth]int {
+func depthTargets(count int, words [][]string) ([maxChannelDepth]int, error) {
 	weights := [maxChannelDepth]int{2, 12, 34, 32, 20}
 	var targets [maxChannelDepth]int
 	remaining := count
@@ -374,10 +346,10 @@ func depthTargets(count int, words [][]string) [maxChannelDepth]int {
 			added = true
 		}
 		if !added {
-			exit("channel count exceeds channel path capacity")
+			return targets, errors.New("channel count exceeds channel path capacity")
 		}
 	}
-	return targets
+	return targets, nil
 }
 
 func depthCapacity(words [][]string, depth int) int {

@@ -2,10 +2,35 @@ package progress
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestStepsReportCurrentStepAndResult(t *testing.T) {
+	var output bytes.Buffer
+	steps := NewSteps(&output, 2)
+	if err := steps.Run("first operation", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("broken")
+	if err := steps.Run("second operation", func() error { return wantErr }); !errors.Is(err, wantErr) {
+		t.Fatalf("got %v, want %v", err, wantErr)
+	}
+
+	log := output.String()
+	for _, want := range []string{
+		"[1/2] first operation",
+		"[1/2] done: first operation",
+		"[2/2] second operation",
+		"[2/2] failed: second operation",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("progress log does not contain %q:\n%s", want, log)
+		}
+	}
+}
 
 func TestBarShowsProgressRateAndETA(t *testing.T) {
 	var output bytes.Buffer
