@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+
 import { formatBytes } from "../utils/format.js";
 import type { HighlightLanguage } from "../utils/syntax-highlighter.js";
 import { CodeBlock } from "./code-block.js";
+
 import styles from "./source-preview.module.css";
 
 const previewLineLimit = 240;
@@ -22,7 +24,7 @@ export function SourcePreview({
     setTruncated(false);
     void file.text().then((content) => {
       if (!active) return;
-      const lines = content.replace(/\r\n?/g, "\n").split("\n");
+      const lines = content.replaceAll(/\r\n?/g, "\n").split("\n");
       setSource(lines.slice(0, previewLineLimit).join("\n"));
       setTruncated(lines.length > previewLineLimit);
     });

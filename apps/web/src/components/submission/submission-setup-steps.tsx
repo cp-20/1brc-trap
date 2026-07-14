@@ -1,15 +1,17 @@
+import { nativeLanguages } from "@1brc/domain";
 import { Link } from "react-router-dom";
-import { CodeBlock } from "../code-block.js";
-import { Select } from "../select.js";
+
 import { languageLabel } from "../../models/labels.js";
-import type { SubmissionDraft } from "../../models/submission.js";
 import {
   executionKinds,
   nativeBuildGuides,
-  nativeLanguages,
 } from "../../models/submission-options.js";
-import styles from "../../pages/submit-page.module.css";
+import type { SubmissionDraft } from "../../models/submission.js";
+import { CodeBlock } from "../code-block.js";
+import { Select } from "../select.js";
 import { CopyableCode, StepHeading } from "./submit-step.js";
+
+import styles from "../../pages/submit-page.module.css";
 
 export function ProgramStep() {
   return (

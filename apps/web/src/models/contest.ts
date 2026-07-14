@@ -1,21 +1,4 @@
-export type ContestSchedule = {
-  startAt: string;
-  endAt: string;
-};
-
-export function hasContestStarted(
-  contest: ContestSchedule,
-  now = new Date(),
-): boolean {
-  return now >= new Date(contest.startAt);
-}
-
-export function isSubmissionOpen(
-  contest: ContestSchedule,
-  now = new Date(),
-): boolean {
-  return hasContestStarted(contest, now) && now <= new Date(contest.endAt);
-}
+import type { ContestSchedule } from "@1brc/domain";
 
 export type ContestPhase = {
   label: string;
@@ -31,7 +14,7 @@ export function getContestPhase(
   const endsAt = new Date(contest.endAt);
   if (now < startsAt)
     return { label: "開始まで", target: startsAt, tone: "warning" };
-  if (now < endsAt)
+  if (now <= endsAt)
     return { label: "終了まで", target: endsAt, tone: "success" };
   return { label: "終了", target: endsAt, tone: "neutral" };
 }

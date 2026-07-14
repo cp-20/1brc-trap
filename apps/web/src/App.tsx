@@ -2,15 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { LogIn } from "lucide-react";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+
 import { AppShell } from "./components/app-shell.js";
 import { accountGateway } from "./gateways/account-gateway.js";
-import { AdminPage } from "./pages/admin-page.js";
 import { AccessKeyPage } from "./pages/access-key-page.js";
+import { AdminPage } from "./pages/admin-page.js";
 import { ContestPage } from "./pages/contest-page.js";
 import { DashboardPage } from "./pages/dashboard-page.js";
 import { LeaderboardPage } from "./pages/leaderboard-page.js";
-import { SubmitPage } from "./pages/submit-page.js";
 import { SubmissionsPage } from "./pages/submissions-page.js";
+import { SubmitPage } from "./pages/submit-page.js";
 
 export function App() {
   const me = useQuery({ queryKey: ["me"], queryFn: accountGateway.me });

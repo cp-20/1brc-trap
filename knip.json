@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreBinaries": ["flock", "pinact"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts", "baselines/**/*.ts", "optimized/**/*.ts"]
+    },
+    "apps/mock-auth": {
+      "entry": ["src/index.ts"]
+    },
+    "apps/runner": {
+      "entry": ["image/measure.mjs"]
+    },
+    "apps/server": {
+      "entry": ["src/index.ts"]
+    },
+    "infra/cdk": {
+      "entry": ["bin/onebrc.ts"]
+    }
+  }
+}

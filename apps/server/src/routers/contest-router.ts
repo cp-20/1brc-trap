@@ -1,15 +1,16 @@
+import { languageSchema, leaderboardBoardSchema } from "@1brc/domain";
 import { zValidator } from "@hono/zod-validator";
-import { languageSchema } from "@1brc/domain";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+
 import type { ContestService } from "../services/contest-service.js";
 import { streamJsonChanges } from "../utils/sse.js";
 import type { RouterEnv } from "./router-context.js";
 import { resultResponse, validationHook } from "./router-context.js";
 
 const leaderboardQuerySchema = z.object({
-  board: z.enum(["public", "private"]).optional(),
+  board: leaderboardBoardSchema.optional(),
   language: languageSchema.optional(),
 });
 

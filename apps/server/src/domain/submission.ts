@@ -62,10 +62,10 @@ export function serializeSubmission(
     queuedAt: row.queued_at?.toISOString() ?? null,
     startedAt: row.started_at?.toISOString() ?? null,
     completedAt: row.completed_at?.toISOString() ?? null,
-    queueAhead: row.status === "queued" ? Number(row.queue_ahead ?? 0) : null,
+    queueAhead: row.status === "queued" ? (row.queue_ahead ?? 0) : null,
     submissionNumber:
       row.submission_number === undefined || row.submission_number === null
         ? null
-        : Number(row.submission_number),
+        : row.submission_number,
   };
 }

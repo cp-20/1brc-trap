@@ -1,3 +1,5 @@
+import { nativeLanguages, sourceExtensions } from "@1brc/domain";
+
 import type { HighlightLanguage } from "../utils/syntax-highlighter.js";
 import type { SubmissionDraft } from "./submission.js";
 
@@ -5,40 +7,28 @@ export const executionKinds = {
   typescript: {
     label: "TypeScript",
     description: "Node.js 24で .ts ファイルを実行します。",
-    extension: ".ts",
   },
   javascript: {
     label: "JavaScript",
     description: "Node.js 24で .js ファイルを実行します。",
-    extension: ".js",
   },
   bun: {
     label: "Bun",
     description: "Bunで .ts または .js ファイルを実行します。",
-    extension: ".ts,.js",
   },
   ruby: {
     label: "Ruby",
     description: "Ruby 4で .rb ファイルを実行します。",
-    extension: ".rb",
   },
   native: {
     label: "Native",
     description:
       "ソースコードと、Ubuntu 26.04 x86_64で動くELF実行ファイルを提出します。",
-    extension: undefined,
   },
-} as const;
-
-export const nativeLanguages = [
-  "c",
-  "cpp",
-  "go",
-  "rust",
-  "zig",
-  "csharp",
-  "other",
-] as const;
+} as const satisfies Record<
+  SubmissionDraft["executionKind"],
+  { label: string; description: string }
+>;
 
 export const nativeBuildGuides: Record<
   (typeof nativeLanguages)[number],
@@ -108,7 +98,7 @@ export function previewLanguage(
   return language[draft.language] ?? "text";
 }
 
-export function defaultSourceName(draft: SubmissionDraft): string {
+function defaultSourceName(draft: SubmissionDraft): string {
   if (draft.executionKind === "native") {
     const extension: Record<string, string> = {
       c: "c",
@@ -129,18 +119,9 @@ export function defaultSourceName(draft: SubmissionDraft): string {
 }
 
 export function sourceAccept(draft: SubmissionDraft): string | undefined {
-  if (draft.executionKind !== "native") {
-    return executionKinds[draft.executionKind].extension;
-  }
-  const extensions: Partial<Record<SubmissionDraft["language"], string>> = {
-    c: ".c",
-    cpp: ".cc,.cpp,.cxx",
-    go: ".go",
-    rust: ".rs",
-    zig: ".zig",
-    csharp: ".cs",
-  };
-  return extensions[draft.language];
+  const language =
+    draft.executionKind === "native" ? draft.language : draft.executionKind;
+  return sourceExtensions[language].join(",") || undefined;
 }
 
 export function createCurlExample(draft: SubmissionDraft): string {

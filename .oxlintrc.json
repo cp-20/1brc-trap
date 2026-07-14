@@ -1,0 +1,107 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error",
+    "perf": "error"
+  },
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "react",
+    "jsx-a11y",
+    "vitest",
+    "promise"
+  ],
+  "options": {
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
+  },
+  "ignorePatterns": ["optimized/typescript/main.ts"],
+  "rules": {
+    "eslint/max-lines": "off",
+    "eslint/max-lines-per-function": "off",
+    "eslint/no-await-in-loop": "off",
+    "eslint/no-control-regex": "off",
+    "eslint/no-inline-comments": "off",
+    "eslint/no-loop-func": "off",
+    "eslint/no-negated-condition": "off",
+    "eslint/no-unmodified-loop-condition": "off",
+    "eslint/require-await": "off",
+    "eslint/require-unicode-regexp": "off",
+    "import/max-dependencies": "off",
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+    "jsx-a11y/control-has-associated-label": "off",
+    "jsx-a11y/label-has-associated-control": "off",
+    "jsx-a11y/no-noninteractive-tabindex": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "oxc/no-map-spread": "off",
+    "promise/always-return": "off",
+    "react/react-in-jsx-scope": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-confusing-void-expression": "off",
+    "typescript/no-unsafe-argument": "off",
+    "typescript/no-unsafe-assignment": "off",
+    "typescript/no-unsafe-member-access": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/prefer-nullish-coalescing": "off",
+    "typescript/prefer-readonly-parameter-types": "off",
+    "typescript/require-await": "off",
+    "typescript/strict-boolean-expressions": "off",
+    "typescript/strict-void-return": "off",
+    "typescript/switch-exhaustiveness-check": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-lonely-if": "off",
+    "unicorn/no-negated-condition": "off",
+    "unicorn/no-useless-undefined": "off",
+    "unicorn/prefer-top-level-await": "off",
+    "vitest/require-to-throw-message": "off"
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/**/*.{ts,tsx}"],
+      "env": { "browser": true }
+    },
+    {
+      "files": [
+        "apps/mock-auth/**/*.ts",
+        "apps/runner/**/*.{js,mjs,ts}",
+        "apps/server/**/*.ts",
+        "baselines/**/*.ts",
+        "infra/cdk/**/*.ts",
+        "scripts/**/*.ts"
+      ],
+      "env": { "node": true }
+    },
+    {
+      "files": ["infra/cdk/**/*.ts"],
+      "rules": { "eslint/no-new": "off" }
+    },
+    {
+      "files": ["apps/runner/image/**/*.mjs", "baselines/**/*.ts"],
+      "rules": {
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-return": "off",
+        "unicorn/prefer-number-coercion": "off",
+        "unicorn/prefer-type-error": "off"
+      }
+    },
+    {
+      "files": ["infra/cdk/**/*.{test,spec}.ts"],
+      "rules": { "vitest/expect-expect": "off" }
+    },
+    {
+      "files": ["**/*.{test,spec}.ts", "**/*.{test,spec}.tsx"],
+      "rules": {
+        "eslint/no-underscore-dangle": "off",
+        "vitest/no-conditional-in-test": "off",
+        "vitest/require-mock-type-parameters": "off"
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { errAsync, okAsync } from "neverthrow";
 import { describe, expect, it, vi } from "vitest";
+
 import { createResultCache } from "./result-cache.js";
 
 describe("createResultCache", () => {

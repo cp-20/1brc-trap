@@ -1,9 +1,11 @@
-import { Download } from "lucide-react";
 import { submissionPolicy } from "@1brc/domain";
+import { Download } from "lucide-react";
+
 import { contestGateway } from "../../gateways/contest-gateway.js";
 import { formatBytes } from "../../utils/format.js";
-import styles from "../../pages/contest-page.module.css";
 import { CodeBlock, Empty, ErrorAlert } from "../ui.js";
+
+import styles from "../../pages/contest-page.module.css";
 
 type Contest = Awaited<ReturnType<typeof contestGateway.contest>>;
 type Datasets = Awaited<ReturnType<typeof contestGateway.datasets>>;

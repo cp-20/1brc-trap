@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { compareRecords } from "./compare.js";
 
 describe("compareRecords", () => {
@@ -7,7 +8,7 @@ describe("compareRecords", () => {
       ["b,2027-01", "1/1.00/1/1/0"],
       ["a,2027-01", "2/2.00/2/1/1"],
     ]);
-    const expected = new Map([...actual].reverse());
+    const expected = new Map([...actual].toReversed());
     expect(compareRecords(actual, expected).isOk()).toBe(true);
   });
   it("rejects missing and mismatched values", () => {

@@ -1,11 +1,13 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import type { Language } from "@1brc/domain";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+
 import { submissionGateway } from "../gateways/submission-gateway.js";
 import type { HighlightLanguage } from "../utils/syntax-highlighter.js";
 import { CodeBlock } from "./code-block.js";
 import { ErrorAlert } from "./ui.js";
+
 import styles from "./source-dialog.module.css";
 
 const previewLineLimit = 500;
@@ -26,7 +28,7 @@ export function SourceDialog({
     queryFn: () => submissionGateway.source(submissionId!),
     enabled: submissionId !== null,
   });
-  const normalized = source.data?.replace(/\r\n?/g, "\n") ?? "";
+  const normalized = source.data?.replaceAll(/\r\n?/g, "\n") ?? "";
   const lines = normalized.split("\n");
   const preview = lines.slice(0, previewLineLimit).join("\n");
   const truncated = lines.length > previewLineLimit;

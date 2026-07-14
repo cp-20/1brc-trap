@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@1brc/domain": "workspace:*",
+    "execa": "^9.6.1",
     "neverthrow": "^8.2.0",
     "zod": "^4.4.3"
   },

@@ -33,7 +33,11 @@ const commands = {
 const selected = commands[kind];
 if (!selected) {
   process.stdout.write(
-    JSON.stringify({ verdict: "invalid_submission", durationNs: null }),
+    JSON.stringify({
+      verdict: "invalid_submission",
+      durationNs: null,
+      error: "実行形式が不正です",
+    }),
   );
   process.exit(0);
 }

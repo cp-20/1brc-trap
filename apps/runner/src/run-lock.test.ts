@@ -1,7 +1,9 @@
 import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import { runWithFileLock } from "./run-lock.js";
 
 describe("runner file lock", () => {
@@ -40,7 +42,9 @@ async function waitForFile(path: string) {
       )
     )
       return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
   }
   throw new Error("lock holder did not start");
 }

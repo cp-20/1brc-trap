@@ -24,17 +24,17 @@ export function shouldStopAfterFirstAttempt(
   return attempt === 1 && BigInt(durationNs) > threshold;
 }
 
-export const executionKinds = [
-  "native",
+const scriptExecutionKinds = [
   "javascript",
   "typescript",
   "bun",
   "ruby",
 ] as const;
+export const executionKinds = ["native", ...scriptExecutionKinds] as const;
 export const executionKindSchema = z.enum(executionKinds);
 export type ExecutionKind = z.infer<typeof executionKindSchema>;
 
-export const languages = [
+export const nativeLanguages = [
   "c",
   "cpp",
   "go",
@@ -42,11 +42,9 @@ export const languages = [
   "zig",
   "csharp",
   "other",
-  "javascript",
-  "typescript",
-  "bun",
-  "ruby",
 ] as const;
+const nativeLanguageSchema = z.enum(nativeLanguages);
+export const languages = [...nativeLanguages, ...scriptExecutionKinds] as const;
 export const languageSchema = z.enum(languages);
 export type Language = z.infer<typeof languageSchema>;
 
@@ -62,6 +60,16 @@ export const submissionStatuses = [
 export const submissionStatusSchema = z.enum(submissionStatuses);
 export type SubmissionStatus = z.infer<typeof submissionStatusSchema>;
 
+export const activeSubmissionStatuses = [
+  "uploading",
+  "queued",
+  "running",
+] as const satisfies readonly SubmissionStatus[];
+
+export function isSubmissionActive(status: string): boolean {
+  return (activeSubmissionStatuses as readonly string[]).includes(status);
+}
+
 export const verdicts = [
   "accepted",
   "wrong_answer",
@@ -75,6 +83,90 @@ export const verdicts = [
 export const verdictSchema = z.enum(verdicts);
 export type Verdict = z.infer<typeof verdictSchema>;
 
+export const leaderboardBoards = ["public", "private"] as const;
+export const leaderboardBoardSchema = z.enum(leaderboardBoards);
+export type LeaderboardBoard = z.infer<typeof leaderboardBoardSchema>;
+
+export type ContestSchedule = {
+  startAt: string | Date;
+  endAt: string | Date;
+};
+
+export function hasContestStarted(
+  contest: ContestSchedule,
+  now = new Date(),
+): boolean {
+  return now >= new Date(contest.startAt);
+}
+
+export function isSubmissionOpen(
+  contest: ContestSchedule,
+  now = new Date(),
+): boolean {
+  return hasContestStarted(contest, now) && now <= new Date(contest.endAt);
+}
+
+export function compareNanoseconds(left: string, right: string): number {
+  const leftNs = BigInt(left);
+  const rightNs = BigInt(right);
+  return leftNs < rightNs ? -1 : leftNs > rightNs ? 1 : 0;
+}
+
+const nanosecondsSchema = z.string().regex(/^\d+$/);
+const failedVerdictSchema = verdictSchema.exclude(["accepted"]);
+
+export const benchmarkAttemptResultSchema = z.discriminatedUnion("verdict", [
+  z
+    .object({
+      verdict: z.literal("accepted"),
+      durationNs: nanosecondsSchema,
+      error: z.null(),
+    })
+    .strict(),
+  z
+    .object({
+      verdict: failedVerdictSchema,
+      durationNs: z.null(),
+      error: z.string().nullable(),
+    })
+    .strict(),
+]);
+export type BenchmarkAttemptResult = z.infer<
+  typeof benchmarkAttemptResultSchema
+>;
+
+export const benchmarkResultSchema = z.discriminatedUnion("verdict", [
+  z
+    .object({
+      verdict: z.literal("accepted"),
+      durationsNs: z.union([
+        z.tuple([nanosecondsSchema]),
+        z.tuple([nanosecondsSchema, nanosecondsSchema, nanosecondsSchema]),
+      ]),
+      medianNs: nanosecondsSchema,
+      error: z.null(),
+    })
+    .strict(),
+  z
+    .object({
+      verdict: failedVerdictSchema,
+      durationsNs: z.null(),
+      medianNs: z.null(),
+      error: z.string().nullable(),
+    })
+    .strict(),
+]);
+export type BenchmarkResult = z.infer<typeof benchmarkResultSchema>;
+
+export const runnerJobResultSchema = z
+  .object({
+    public: benchmarkResultSchema,
+    private: benchmarkResultSchema.nullable(),
+    environmentId: z.string().min(1),
+  })
+  .strict();
+export type RunnerJobResult = z.infer<typeof runnerJobResultSchema>;
+
 export const sourceExtensions: Readonly<Record<Language, readonly string[]>> = {
   c: [".c"],
   cpp: [".cc", ".cpp", ".cxx"],
@@ -87,13 +179,6 @@ export const sourceExtensions: Readonly<Record<Language, readonly string[]>> = {
   typescript: [".ts"],
   bun: [".js", ".ts"],
   ruby: [".rb"],
-};
-
-export type BenchmarkResult = {
-  verdict: Verdict;
-  durationsNs: [string] | [string, string, string] | null;
-  medianNs: string | null;
-  error: string | null;
 };
 
 export type LeaderboardEntry = {
@@ -116,7 +201,7 @@ const datasetArtifactSchema = z.object({
     .string()
     .startsWith("datasets/")
     .max(1024)
-    .regex(/^[\x20-\x7e]+$/),
+    .regex(/^[\u0020-\u007E]+$/),
   rows: z.number().int().positive(),
   compressedBytes: z.number().int().positive(),
   uncompressedBytes: z.number().int().positive(),
@@ -129,7 +214,7 @@ export const datasetManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
     contestId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,127}$/),
-    generatedAt: z.string().datetime(),
+    generatedAt: z.iso.datetime(),
     generatorRevision: z.string().min(1).max(128),
     artifacts: z.array(datasetArtifactSchema).min(4),
   })
@@ -215,18 +300,7 @@ export function inferLanguage(
   kind: ExecutionKind,
   requested?: string,
 ): Language | null {
-  if (
-    kind === "javascript" ||
-    kind === "typescript" ||
-    kind === "bun" ||
-    kind === "ruby"
-  )
-    return kind;
-  const parsed = languageSchema.safeParse(requested);
-  if (
-    !parsed.success ||
-    ["javascript", "typescript", "bun", "ruby"].includes(parsed.data)
-  )
-    return null;
-  return parsed.data;
+  if (kind !== "native") return kind;
+  const parsed = nativeLanguageSchema.safeParse(requested);
+  return parsed.success ? parsed.data : null;
 }

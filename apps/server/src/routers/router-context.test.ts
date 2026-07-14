@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { errAsync, okAsync } from "neverthrow";
 import { describe, expect, it, vi } from "vitest";
+
 import type { ContestService } from "../services/contest-service.js";
 import { AppError } from "../utils/errors.js";
 import { createContestRouter } from "./contest-router.js";

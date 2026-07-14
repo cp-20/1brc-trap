@@ -1,6 +1,8 @@
+import { hasContestStarted, isSubmissionOpen } from "@1brc/domain";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ListChecks, Send, Timer, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+
 import {
   AnimatedCountdown,
   AnimatedNumber,
@@ -11,14 +13,11 @@ import {
   contestGateway,
   contestQueryKeys,
 } from "../gateways/contest-gateway.js";
-import { useContestLive } from "../gateways/use-contest-live.js";
 import { useClock } from "../gateways/use-clock.js";
-import {
-  getContestPhase,
-  hasContestStarted,
-  isSubmissionOpen,
-} from "../models/contest.js";
+import { useContestLive } from "../gateways/use-contest-live.js";
+import { getContestPhase } from "../models/contest.js";
 import { formatDate } from "../utils/format.js";
+
 import styles from "./dashboard-page.module.css";
 
 export function DashboardPage() {

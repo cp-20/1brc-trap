@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildLeaderboard, type LeaderboardRecord } from "./leaderboard.js";
 
 const rows: LeaderboardRecord[] = [

@@ -1,4 +1,9 @@
-import type { LeaderboardEntry } from "@1brc/domain";
+import {
+  compareNanoseconds,
+  type LeaderboardBoard,
+  type LeaderboardEntry,
+} from "@1brc/domain";
+
 import type { submissions, users } from "../infrastructures/schema.js";
 
 type Submission = typeof submissions.$inferSelect;
@@ -16,7 +21,7 @@ export type LeaderboardRecord = {
 
 export function buildLeaderboard(
   rows: LeaderboardRecord[],
-  board: "public" | "private",
+  board: LeaderboardBoard,
   privatePublished: boolean,
 ) {
   const publicRanks = calculateRanks(rows, "public");
@@ -53,7 +58,7 @@ export function buildLeaderboard(
 
 function calculateRanks(
   rows: LeaderboardRecord[],
-  board: "public" | "private",
+  board: LeaderboardBoard,
 ): Map<string, number> {
   const accepted = rows
     .filter((row) => {
@@ -68,13 +73,12 @@ function calculateRanks(
       );
     })
     .sort((left, right) => {
-      const leftScore = BigInt(
-        board === "public" ? left.public_score_ns! : left.private_score_ns!,
-      );
-      const rightScore = BigInt(
-        board === "public" ? right.public_score_ns! : right.private_score_ns!,
-      );
-      if (leftScore !== rightScore) return leftScore < rightScore ? -1 : 1;
+      const leftScore =
+        board === "public" ? left.public_score_ns! : left.private_score_ns!;
+      const rightScore =
+        board === "public" ? right.public_score_ns! : right.private_score_ns!;
+      const scoreOrder = compareNanoseconds(leftScore, rightScore);
+      if (scoreOrder !== 0) return scoreOrder;
       return left.submitted_at.getTime() - right.submitted_at.getTime();
     });
   return new Map(

@@ -1,15 +1,16 @@
+import { sql } from "drizzle-orm";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import mysql, {
   type Connection,
   type Pool,
   type PoolConnection,
 } from "mysql2/promise";
-import { sql } from "drizzle-orm";
-import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import type { Result } from "neverthrow";
 import { ResultAsync } from "neverthrow";
+
+import { AppError } from "../utils/errors.js";
 import type { Config } from "./config.js";
 import * as schema from "./schema.js";
-import { AppError } from "../utils/errors.js";
 
 export type Database = ReturnType<typeof createDatabase>;
 export type Orm = MySql2Database<typeof schema>;
@@ -64,7 +65,7 @@ export function createDatabase(config: Config) {
                 "Database transaction failed",
                 cause,
               ),
-      ).andThen((result) => result);
+      ).andThen((transactionResult) => transactionResult);
     },
     close: () => pool.end(),
   };

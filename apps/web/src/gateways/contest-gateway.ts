@@ -1,8 +1,9 @@
-import type { Language } from "@1brc/domain";
+import type { Language, LeaderboardBoard } from "@1brc/domain";
+
 import { rpc, rpcResult } from "./api-client.js";
 
 const getContest = () => rpcResult(rpc.contest.$get());
-const getLeaderboard = (board: "public" | "private", language?: Language) =>
+const getLeaderboard = (board: LeaderboardBoard, language?: Language) =>
   rpcResult(
     rpc.leaderboard.$get({
       query: language ? { board, language } : { board },
@@ -10,7 +11,7 @@ const getLeaderboard = (board: "public" | "private", language?: Language) =>
   );
 
 export type ContestOverview = Awaited<ReturnType<typeof getContest>>;
-export type Leaderboard = Awaited<ReturnType<typeof getLeaderboard>>;
+type Leaderboard = Awaited<ReturnType<typeof getLeaderboard>>;
 export type ContestLiveUpdate = {
   contest: Pick<
     ContestOverview,
@@ -21,7 +22,7 @@ export type ContestLiveUpdate = {
 
 export const contestQueryKeys = {
   overview: ["contest"] as const,
-  leaderboard: (board: "public" | "private", language = "all") =>
+  leaderboard: (board: LeaderboardBoard, language = "all") =>
     ["leaderboard", board, language] as const,
 };
 
@@ -30,7 +31,7 @@ export const contestGateway = {
   datasets: () => rpcResult(rpc.datasets.$get()),
   leaderboard: getLeaderboard,
   subscribe(
-    board: "public" | "private",
+    board: LeaderboardBoard,
     language: Language | undefined,
     onUpdate: (data: ContestLiveUpdate) => void,
   ) {

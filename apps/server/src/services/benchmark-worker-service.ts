@@ -1,6 +1,7 @@
 import type { BenchmarkResult } from "@1brc/domain";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { err, ok, type ResultAsync } from "neverthrow";
+
 import type { Config } from "../infrastructures/config.js";
 import {
   createOrm,
@@ -19,10 +20,6 @@ import { AppError } from "../utils/errors.js";
 type JobRow = Pick<
   typeof submissions.$inferSelect,
   "id" | "username" | "execution_kind" | "language"
->;
-
-export type BenchmarkWorkerService = ReturnType<
-  typeof createBenchmarkWorkerService
 >;
 
 export function createBenchmarkWorkerService(
@@ -134,7 +131,7 @@ export function createBenchmarkWorkerService(
         continue;
       }
       if (!job.execution_kind || !job.language) {
-        await persistInfrastructureFailure(
+        await retryResultUntilStopped(
           () =>
             markInfrastructureFailure(
               database,
@@ -157,13 +154,13 @@ export function createBenchmarkWorkerService(
         username: job.username,
         language: job.language,
       });
-      const result = await runner.run(job.id, job.execution_kind, job.language);
+      const result = await runner.run(job.id, job.execution_kind);
       if (result.isErr()) {
         logger.error("benchmark infrastructure failure", {
           submissionId: job.id,
           error: result.error.message,
         });
-        await persistInfrastructureFailure(
+        await retryResultUntilStopped(
           () =>
             markInfrastructureFailure(database, job.id, result.error.message),
           {
@@ -329,19 +326,21 @@ export function createBenchmarkWorkerService(
     publicResult: BenchmarkResult,
     privateResult: BenchmarkResult | null,
   ) {
-    while (!stopping) {
-      const stored = await storeResult(job, publicResult, privateResult);
-      if (stored.isOk()) return;
-      logger.error("failed to persist benchmark result; retrying", {
-        submissionId: job.id,
-        error: stored.error.message,
-      });
-      await delay(2_000);
-    }
+    await retryResultUntilStopped(
+      () => storeResult(job, publicResult, privateResult),
+      {
+        isStopping: () => stopping,
+        onRetry: (error) =>
+          logger.error("failed to persist benchmark result; retrying", {
+            submissionId: job.id,
+            error: error.message,
+          }),
+      },
+    );
   }
 }
 
-export async function persistInfrastructureFailure(
+export async function retryResultUntilStopped(
   markFailure: () => ResultAsync<unknown, AppError>,
   options: {
     isStopping: () => boolean;
@@ -394,5 +393,7 @@ async function insertRuns(
 }
 
 function delay(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }

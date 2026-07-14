@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SubmissionDraft } from "./submission.js";
+
 import { createCurlExample, sourceAccept } from "./submission-options.js";
+import type { SubmissionDraft } from "./submission.js";
 
 describe("submission command", () => {
   afterEach(() => vi.unstubAllGlobals());

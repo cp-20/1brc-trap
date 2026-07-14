@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
+
 import type { CurrentUser } from "../models/identity.js";
 
 const navigation = [

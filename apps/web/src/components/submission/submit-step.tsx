@@ -1,5 +1,7 @@
 import { Copy } from "lucide-react";
+
 import { CodeBlock } from "../code-block.js";
+
 import styles from "../../pages/submit-page.module.css";
 
 export function StepHeading({

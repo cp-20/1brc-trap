@@ -4,10 +4,6 @@ export function sha256(input: string | Buffer): Buffer {
   return createHash("sha256").update(input).digest();
 }
 
-export function sha256Hex(input: string | Buffer): string {
-  return sha256(input).toString("hex");
-}
-
 export function issueAccessKey(): {
   token: string;
   hash: Buffer;

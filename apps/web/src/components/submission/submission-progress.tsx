@@ -1,8 +1,10 @@
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
+
 import type { SubmissionItem } from "../../gateways/submission-gateway.js";
-import styles from "../../pages/submissions-page.module.css";
 import { AnimatedDuration, AnimatedNumber } from "../animated-number.js";
+
+import styles from "../../pages/submissions-page.module.css";
 
 export function SubmissionProgress({
   submission,

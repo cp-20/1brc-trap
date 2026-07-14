@@ -15,18 +15,8 @@ type Options = {
 };
 
 const monthStartUnix = [
-  1798761600,
-  1801440000,
-  1803859200,
-  1806537600,
-  1809129600,
-  1811808000,
-  1814400000,
-  1817078400,
-  1819756800,
-  1822348800,
-  1825027200,
-  1827619200,
+  1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000,
+  1814400000, 1817078400, 1819756800, 1822348800, 1825027200, 1827619200,
   1830297600,
 ];
 
@@ -152,9 +142,9 @@ function writeResult(
     const s = stats.get(key)!;
     const meanLen = s.totalLen / s.messages;
     output.write(
-      `${key}=${s.minLen}/${
-        formatFixed2(meanLen)
-      }/${s.maxLen}/${s.messages}/${s.stamps}\n`,
+      `${key}=${s.minLen}/${formatFixed2(
+        meanLen,
+      )}/${s.maxLen}/${s.messages}/${s.stamps}\n`,
     );
   }
 }
@@ -198,16 +188,20 @@ function formatFixed2(value: number): string {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const input = options.input === ""
-    ? process.stdin
-    : fs.createReadStream(options.input, { encoding: "utf8" });
-  const output = options.output === ""
-    ? process.stdout
-    : fs.createWriteStream(options.output, { encoding: "utf8" });
+  const input =
+    options.input === ""
+      ? process.stdin
+      : fs.createReadStream(options.input, { encoding: "utf8" });
+  const output =
+    options.output === ""
+      ? process.stdout
+      : fs.createWriteStream(options.output, { encoding: "utf8" });
   const stats = await analyze(input);
   writeResult(output, stats);
   if (output !== process.stdout) {
-    await new Promise<void>((resolve) => output.end(resolve));
+    await new Promise<void>((resolve) => {
+      output.end(resolve);
+    });
   }
 }
 

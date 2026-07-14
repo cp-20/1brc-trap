@@ -1,7 +1,11 @@
-import type { Language } from "@1brc/domain";
+import {
+  compareNanoseconds,
+  type ExecutionKind,
+  type Language,
+} from "@1brc/domain";
 
 export type SubmissionDraft = {
-  executionKind: "typescript" | "javascript" | "bun" | "ruby" | "native";
+  executionKind: ExecutionKind;
   language: Language;
   source: File | null;
   binary: File | null;
@@ -19,7 +23,7 @@ export function bestAcceptedScore(
   );
   if (scores.length === 0) return null;
   return scores.reduce((best, score) =>
-    BigInt(score) < BigInt(best) ? score : best,
+    compareNanoseconds(score, best) < 0 ? score : best,
   );
 }
 
@@ -28,10 +32,6 @@ export function isBetterScore(
   previousBest: string | null,
 ): boolean {
   return Boolean(
-    score && (!previousBest || BigInt(score) < BigInt(previousBest)),
+    score && (!previousBest || compareNanoseconds(score, previousBest) < 0),
   );
-}
-
-export function isProcessing(submission: { status: string }): boolean {
-  return ["uploading", "queued", "running"].includes(submission.status);
 }

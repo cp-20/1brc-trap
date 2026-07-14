@@ -11,18 +11,19 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+
 import {
+  benchmarkAttemptResultSchema,
   benchmarkPolicy,
+  compareNanoseconds,
   executionKindSchema,
-  languageSchema,
   shouldStopAfterFirstAttempt,
   submissionPolicy,
   type BenchmarkResult,
-  type Verdict,
 } from "@1brc/domain";
+import { execa } from "execa";
 import { z } from "zod";
+
 import { compareOutput } from "./compare.js";
 import { buildContainerCreateArgs } from "./container-command.js";
 import { runWithFileLock } from "./run-lock.js";
@@ -104,10 +105,9 @@ async function upload(args: string[]) {
 }
 
 async function run(args: string[]) {
-  const [id, kindValue, languageValue] = args;
+  const [id, kindValue] = args;
   validateId(id);
   const kind = executionKindSchema.parse(kindValue);
-  const language = languageSchema.parse(languageValue);
   await access(artifactPath(id, kind));
   const publicResult = await benchmark(
     id,
@@ -131,7 +131,6 @@ async function run(args: string[]) {
       public: publicResult,
       private: privateResult,
       environmentId: config.BENCHMARK_ENVIRONMENT_ID,
-      language,
     })}\n`,
   );
 }
@@ -141,7 +140,7 @@ async function runUnderLock() {
   const exitCode = await runWithFileLock(
     join(config.RUNNER_ROOT, "run.lock"),
     process.execPath,
-    [fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    [import.meta.filename, ...process.argv.slice(2)],
     { ...process.env, ONEBRC_RUN_LOCKED: "1" },
   );
   if (exitCode === "busy") throw new Error("runner is busy");
@@ -165,7 +164,7 @@ async function benchmark(
       attempt,
       cachedInput,
     );
-    if (attemptResult.verdict !== "accepted" || !attemptResult.durationNs) {
+    if (attemptResult.verdict !== "accepted") {
       await removeAttemptWork(id, dataset, attempt);
       return {
         verdict: attemptResult.verdict,
@@ -186,11 +185,7 @@ async function benchmark(
     durations.push(attemptResult.durationNs);
     if (shouldStopAfterFirstAttempt(attempt, attemptResult.durationNs)) break;
   }
-  const sorted = [...durations].sort((a, b) => {
-    const left = BigInt(a);
-    const right = BigInt(b);
-    return left < right ? -1 : left > right ? 1 : 0;
-  });
+  const sorted = [...durations].sort(compareNanoseconds);
   return {
     verdict: "accepted",
     durationsNs: durations as [string] | [string, string, string],
@@ -257,11 +252,7 @@ async function runAttempt(
       (benchmarkPolicy.timeoutSeconds + 30) * 1000,
       benchmarkPolicy.stdioLimitBytes,
     );
-    const result = JSON.parse(raw.trim()) as {
-      verdict: Verdict;
-      durationNs: string | null;
-      error: string | null;
-    };
+    const result = benchmarkAttemptResultSchema.parse(JSON.parse(raw.trim()));
     if (result.verdict === "accepted") {
       const outputStats = await stat(output);
       if (outputStats.size > benchmarkPolicy.outputLimitBytes)
@@ -326,41 +317,16 @@ function validateId(id: string | undefined): asserts id is string {
     throw new Error("invalid submission id");
 }
 
-function execute(
-  command: string,
+async function execute(
+  executable: string,
   args: string[],
   timeout: number,
   maxOutput = 256 * 1024,
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = Buffer.alloc(0);
-    let stderr = Buffer.alloc(0);
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`${command} timeout`));
-    }, timeout);
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout = Buffer.concat([stdout, chunk]);
-      if (stdout.length > maxOutput) child.kill("SIGKILL");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = Buffer.concat([stderr, chunk]);
-      if (stderr.length > maxOutput) child.kill("SIGKILL");
-    });
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      code === 0
-        ? resolve(stdout.toString("utf8"))
-        : reject(
-            new Error(
-              `${command} exited ${code}: ${stderr.toString("utf8").slice(-4096)}`,
-            ),
-          );
-    });
+  const { stdout } = await execa(executable, args, {
+    stdin: "ignore",
+    timeout,
+    maxBuffer: maxOutput,
   });
+  return stdout;
 }

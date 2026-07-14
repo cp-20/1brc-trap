@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { serializeSubmission, type SubmissionRecord } from "./submission.js";
 
 describe("submission visibility", () => {

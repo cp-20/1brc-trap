@@ -1,5 +1,6 @@
 import type { SubmissionStatus } from "@1brc/domain";
 import { describe, expectTypeOf, it } from "vitest";
+
 import { apiTokens, datasetReleases, submissions } from "./schema.js";
 
 describe("database schema inference", () => {

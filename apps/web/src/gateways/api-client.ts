@@ -16,7 +16,8 @@ export async function rpcResult<T extends ClientResponse<unknown>>(
   } catch (error) {
     if (error instanceof DetailedError) {
       const message = error.detail?.data?.error?.message;
-      if (typeof message === "string") throw new Error(message);
+      if (typeof message === "string")
+        throw new Error(message, { cause: error });
     }
     throw error;
   }

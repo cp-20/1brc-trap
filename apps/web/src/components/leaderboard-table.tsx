@@ -1,19 +1,21 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ArrowDown, ArrowUp, Code2 } from "lucide-react";
 import { useState } from "react";
-import type { LeaderboardEntry } from "../models/leaderboard.js";
+
 import { avatarUrl } from "../models/identity.js";
 import { languageLabel } from "../models/labels.js";
+import type { LeaderboardEntry } from "../models/leaderboard.js";
 import { formatDate } from "../utils/format.js";
 import {
   AnimatedDuration,
   AnimatedDurationDelta,
   AnimatedNumber,
 } from "./animated-number.js";
-import styles from "./leaderboard-table.module.css";
 import { useLeaderboardUpdates } from "./leaderboard/use-leaderboard-updates.js";
-import { Empty, VerdictBadge } from "./ui.js";
 import { SourceDialog } from "./source-dialog.js";
+import { Empty, VerdictBadge } from "./ui.js";
+
+import styles from "./leaderboard-table.module.css";
 
 export function LeaderboardTable({
   entries,

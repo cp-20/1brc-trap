@@ -1,5 +1,6 @@
 import type { SSEStreamingApi } from "hono/streaming";
 import type { ResultAsync } from "neverthrow";
+
 import type { AppError } from "./errors.js";
 
 export async function streamJsonChanges<T>(

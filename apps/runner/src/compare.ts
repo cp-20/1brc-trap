@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
-import { ResultAsync, err, ok, type Result } from "neverthrow";
 import { createInterface } from "node:readline";
+
+import { ResultAsync, err, ok, type Result } from "neverthrow";
 
 export type ComparisonError = {
   code: "malformed" | "duplicate" | "missing" | "extra" | "mismatch" | "io";
@@ -37,7 +38,7 @@ export function compareRecords(
   return ok(undefined);
 }
 
-export async function loadRecords(path: string): Promise<Map<string, string>> {
+async function loadRecords(path: string): Promise<Map<string, string>> {
   const records = new Map<string, string>();
   const lines = createInterface({
     input: createReadStream(path, { encoding: "utf8" }),

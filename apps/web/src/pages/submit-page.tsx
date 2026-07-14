@@ -1,26 +1,28 @@
+import { isSubmissionOpen } from "@1brc/domain";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Clock3 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
+import { SubmissionMethodStep } from "../components/submission/submission-method-step.js";
 import {
   NativeBuildStep,
   ProgramStep,
   RuntimeStep,
 } from "../components/submission/submission-setup-steps.js";
-import { SubmissionMethodStep } from "../components/submission/submission-method-step.js";
 import { ErrorAlert, PageHeader, Panel } from "../components/ui.js";
 import {
   contestGateway,
   contestQueryKeys,
 } from "../gateways/contest-gateway.js";
-import { useClock } from "../gateways/use-clock.js";
 import { submissionGateway } from "../gateways/submission-gateway.js";
-import { isSubmissionOpen } from "../models/contest.js";
+import { useClock } from "../gateways/use-clock.js";
 import {
   bestAcceptedScore,
   type SubmissionDraft,
 } from "../models/submission.js";
 import { formatDate } from "../utils/format.js";
+
 import styles from "./submit-page.module.css";
 
 const initialDraft: SubmissionDraft = {
@@ -50,7 +52,7 @@ export function SubmitPage() {
     onSuccess: ({ receipt, previousBest }) => {
       const params = new URLSearchParams({ submitted: receipt.id });
       if (previousBest) params.set("previousBest", previousBest);
-      navigate(`/submissions?${params.toString()}`, { replace: true });
+      void navigate(`/submissions?${params.toString()}`, { replace: true });
     },
   });
   const update = (change: Partial<SubmissionDraft>) =>

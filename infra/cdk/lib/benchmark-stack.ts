@@ -18,13 +18,15 @@ export class BenchmarkStack extends Stack {
       (this.node.tryGetContext("allowedSshCidr") as string | undefined) ??
       "0.0.0.0/0";
     const keyPairName = this.node.tryGetContext("keyPairName") as
-      string | undefined;
+      | string
+      | undefined;
     const volumeSizeGiB = Number(
       this.node.tryGetContext("volumeSizeGiB") ?? 200,
     );
     const environmentId =
       (this.node.tryGetContext("benchmarkEnvironmentId") as
-        string | undefined) ?? "r7i-2xlarge-ubuntu26-v2";
+        | string
+        | undefined) ?? "r7i-2xlarge-ubuntu26-v2";
     if (!keyPairName) throw new Error("CDK context keyPairName is required");
     if (!Number.isInteger(volumeSizeGiB) || volumeSizeGiB < 100)
       throw new Error("volumeSizeGiB must be at least 100");

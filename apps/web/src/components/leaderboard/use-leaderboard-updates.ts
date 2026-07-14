@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { LeaderboardEntry } from "../../models/leaderboard.js";
+
 import {
   detectLeaderboardRecordUpdates,
   type LeaderboardRecordUpdate,
 } from "../../models/leaderboard-updates.js";
+import type { LeaderboardEntry } from "../../models/leaderboard.js";
 
 export type VisibleLeaderboardUpdate = LeaderboardRecordUpdate & {
   sequence: number;

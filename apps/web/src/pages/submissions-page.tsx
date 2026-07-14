@@ -1,14 +1,17 @@
+import { isSubmissionActive } from "@1brc/domain";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+
 import { Confetti } from "../components/confetti.js";
 import { SubmissionHistoryTable } from "../components/submission/submission-history-table.js";
 import { SubmissionProgress } from "../components/submission/submission-progress.js";
 import { ErrorAlert, PageHeader } from "../components/ui.js";
 import { contestGateway } from "../gateways/contest-gateway.js";
 import { submissionGateway } from "../gateways/submission-gateway.js";
-import { isBetterScore, isProcessing } from "../models/submission.js";
+import { isBetterScore } from "../models/submission.js";
+
 import styles from "./submissions-page.module.css";
 
 export function SubmissionsPage() {
@@ -32,7 +35,7 @@ export function SubmissionsPage() {
     : undefined;
   const latestSubmission = submissions.data?.submissions[0];
   const processingSubmission =
-    latestSubmission && isProcessing(latestSubmission)
+    latestSubmission && isSubmissionActive(latestSubmission.status)
       ? latestSubmission
       : undefined;
   const submittedLoaded = submitted !== undefined;
@@ -62,13 +65,13 @@ export function SubmissionsPage() {
 
   useEffect(() => {
     if (!submittedId || celebrated.current === submittedId) return;
-    const submitted = submissions.data?.submissions.find(
+    const completedSubmission = submissions.data?.submissions.find(
       (item) => item.id === submittedId,
     );
     if (
-      submitted?.status === "completed" &&
-      submitted.public?.verdict === "accepted" &&
-      isBetterScore(submitted.public.scoreNs, previousBest)
+      completedSubmission?.status === "completed" &&
+      completedSubmission.public?.verdict === "accepted" &&
+      isBetterScore(completedSubmission.public.scoreNs, previousBest)
     ) {
       celebrated.current = submittedId;
       setShowConfetti(true);

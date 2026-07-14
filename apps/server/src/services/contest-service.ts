@@ -1,9 +1,11 @@
 import {
   benchmarkPolicy,
   type Language,
+  type LeaderboardBoard,
   type LeaderboardEntry,
 } from "@1brc/domain";
 import { errAsync, ResultAsync } from "neverthrow";
+
 import { buildLeaderboard } from "../domain/leaderboard.js";
 import type { Config } from "../infrastructures/config.js";
 import type { R2Signer } from "../infrastructures/r2-signer.js";
@@ -18,7 +20,7 @@ type LiveSnapshot = {
     totalSubmissions: number;
   };
   leaderboard: {
-    board: "public" | "private";
+    board: LeaderboardBoard;
     privatePublished: boolean;
     ranked: LeaderboardEntry[];
     disqualified: LeaderboardEntry[];
@@ -66,7 +68,7 @@ export function createContestService(
       }));
     },
     leaderboard(
-      requestedBoard: string | undefined,
+      requestedBoard: LeaderboardBoard | undefined,
       language: Language | undefined,
     ) {
       return ResultAsync.combine([
@@ -81,7 +83,7 @@ export function createContestService(
       });
     },
     liveSnapshot(
-      requestedBoard: string | undefined,
+      requestedBoard: LeaderboardBoard | undefined,
       language: Language | undefined,
     ) {
       const key = `${requestedBoard ?? "public"}:${language ?? "all"}`;

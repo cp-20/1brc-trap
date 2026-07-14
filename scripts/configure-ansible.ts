@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { z } from "zod";
+
 const { values } = parseArgs({
   options: {
     "cdk-outputs": {
@@ -32,31 +34,35 @@ if (!values["ssh-private-key"] || !values["runner-public-key"]) {
   throw new Error("--ssh-private-key and --runner-public-key are required");
 }
 
-type CdkStackOutputs = {
-  BenchmarkPublicIp?: string;
-  BenchmarkEnvironment?: string;
-};
-
 const datasetFiles = [
   "public.csv",
   "public.expected",
   "private.csv",
   "private.expected",
 ] as const;
-type DatasetFile = (typeof datasetFiles)[number];
-type Download = {
-  url: string;
-  sha256: string;
-  compressedSha256: string;
-};
-type RunnerDownloads = {
-  expiresAt?: string;
-  files?: Partial<Record<DatasetFile, Partial<Download>>>;
-};
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const downloadSchema = z.object({
+  url: z.url().startsWith("https://"),
+  sha256: sha256Schema,
+  compressedSha256: sha256Schema,
+});
+const runnerDownloadsSchema = z.object({
+  expiresAt: z.iso.datetime(),
+  files: z.record(z.enum(datasetFiles), downloadSchema),
+});
+const cdkOutputsSchema = z.record(
+  z.string(),
+  z
+    .object({
+      BenchmarkPublicIp: z.string().min(1).optional(),
+      BenchmarkEnvironment: z.string().min(1).optional(),
+    })
+    .loose(),
+);
 
-const outputs = JSON.parse(
-  await readFile(resolvePath(values["cdk-outputs"]), "utf8"),
-) as Record<string, CdkStackOutputs>;
+const outputs = cdkOutputsSchema.parse(
+  JSON.parse(await readFile(resolvePath(values["cdk-outputs"]), "utf8")),
+);
 const stack = Object.values(outputs).find(
   (candidate) => candidate.BenchmarkPublicIp && candidate.BenchmarkEnvironment,
 );
@@ -73,25 +79,14 @@ if (!runnerPublicKey.startsWith("ssh-")) {
   throw new Error("runner public key is not an OpenSSH public key");
 }
 
-const runnerDownloads = JSON.parse(
-  await readFile(resolvePath(values["runner-downloads"]), "utf8"),
-) as RunnerDownloads;
-const expiresAt = Date.parse(runnerDownloads.expiresAt ?? "");
+const runnerDownloads = runnerDownloadsSchema.parse(
+  JSON.parse(await readFile(resolvePath(values["runner-downloads"]), "utf8")),
+);
+const expiresAt = Date.parse(runnerDownloads.expiresAt);
 if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
   throw new Error("runner download URLs are expired; run presign-runner again");
 }
-const downloads = {} as Record<DatasetFile, Download>;
-for (const filename of datasetFiles) {
-  const download = runnerDownloads.files?.[filename];
-  if (
-    !download?.url?.startsWith("https://") ||
-    !download.sha256?.match(/^[0-9a-f]{64}$/) ||
-    !download.compressedSha256?.match(/^[0-9a-f]{64}$/)
-  ) {
-    throw new Error(`invalid runner download: ${filename}`);
-  }
-  downloads[filename] = download as Download;
-}
+const downloads = runnerDownloads.files;
 
 const inventoryPath = resolvePath(values.inventory);
 const groupVarsPath = resolvePath(values["group-vars"]);
@@ -107,7 +102,9 @@ await Promise.all([
     benchmark:
       ansible_host: ${yamlString(stack.BenchmarkPublicIp)}
       ansible_user: ubuntu
-      ansible_ssh_private_key_file: ${yamlString(resolvePath(values["ssh-private-key"]))}
+      ansible_ssh_private_key_file: ${yamlString(
+        resolvePath(values["ssh-private-key"]),
+      )}
       ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
 `,
   ),
@@ -123,7 +120,8 @@ onebrc_private_expected: "/var/lib/1brc/data/private.expected"
 onebrc_dataset_downloads:
 ${datasetFiles
   .map(
-    (filename) => `  ${filename}:
+    (filename) =>
+      `  ${filename}:
     url: ${yamlString(downloads[filename].url)}
     sha256: ${yamlString(downloads[filename].sha256)}
     compressed_sha256: ${yamlString(downloads[filename].compressedSha256)}`,

@@ -1,0 +1,165 @@
+import { MariaDbContainer } from "@testcontainers/mariadb";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import type { Config } from "../infrastructures/config.js";
+import { createDatabase, type Database } from "../infrastructures/database.js";
+import { migrateDatabase } from "../infrastructures/migrations.js";
+import {
+  adminAudit,
+  apiTokens,
+  benchmarkRuns,
+  contestState,
+  datasetReleases,
+  submissionSources,
+  submissions,
+  users,
+} from "../infrastructures/schema.js";
+import { createAdminRepository } from "./admin-repository.js";
+import { createSubmissionRepository } from "./submission-repository.js";
+
+const mariadbImage =
+  "mariadb:11.8.8@sha256:efb4959ef2c835cd735dbc388eb9ad6aab0c78dd64febcd51bc17481111890c4";
+
+let container: Awaited<ReturnType<MariaDbContainer["start"]>>;
+let config: Config;
+let database: Database;
+
+beforeAll(async () => {
+  container = await new MariaDbContainer(mariadbImage)
+    .withDatabase("onebrc_test")
+    .withUsername("onebrc")
+    .withUserPassword("onebrc")
+    .start();
+  config = {
+    NS_MARIADB_HOSTNAME: container.getHost(),
+    NS_MARIADB_PORT: container.getPort(),
+    NS_MARIADB_USER: container.getUsername(),
+    NS_MARIADB_PASSWORD: container.getUserPassword(),
+    NS_MARIADB_DATABASE: container.getDatabase(),
+  } as Config;
+  await migrateDatabase(config);
+  database = createDatabase(config);
+}, 120_000);
+
+afterAll(async () => {
+  await database?.close();
+  await container?.stop();
+});
+
+beforeEach(async () => {
+  await database.orm.delete(benchmarkRuns);
+  await database.orm.delete(submissionSources);
+  await database.orm.delete(adminAudit);
+  await database.orm.delete(datasetReleases);
+  await database.orm.delete(apiTokens);
+  await database.orm.delete(submissions);
+  await database.orm.delete(users);
+  await database.orm.update(contestState).set({
+    private_published_at: null,
+    worker_heartbeat_at: null,
+    benchmark_environment_id: null,
+  });
+});
+
+describe("Drizzle migrations", () => {
+  it("空のMariaDBへschemaとsingletonを作成し、再適用しても状態を壊さない", async () => {
+    await migrateDatabase(config);
+
+    const states = await database.orm.select().from(contestState);
+    expect(states).toHaveLength(1);
+    expect(states[0]?.singleton_id).toBe(1);
+  });
+});
+
+describe("submission reservation", () => {
+  it("同じユーザーの並行予約をDB lockで直列化し、activeな提出を1件に保つ", async () => {
+    const repository = createSubmissionRepository(database);
+    const contest = openContest();
+
+    const results = await Promise.all([
+      repository.reserve("user", contest),
+      repository.reserve("user", contest),
+    ]);
+
+    expect(results.filter((result) => result.isOk())).toHaveLength(1);
+    expect(results.find((result) => result.isErr())?.error.code).toBe(
+      "active_submission",
+    );
+    expect(await database.orm.select().from(submissions)).toHaveLength(1);
+  });
+
+  it("終了後は提出もユーザーもtransactionに残さない", async () => {
+    const repository = createSubmissionRepository(database);
+    const contest = {
+      ...openContest(),
+      CONTEST_END_AT: new Date(Date.now() - 1_000),
+    };
+
+    const result = await repository.reserve("late-user", contest);
+
+    expect(result.isErr() && result.error.code).toBe("contest_closed");
+    expect(await database.orm.select().from(submissions)).toHaveLength(0);
+    expect(await database.orm.select().from(users)).toHaveLength(0);
+  });
+});
+
+describe("private result publication", () => {
+  it("publish/unpublishは公開状態だけを変更し、提出ソースを保持する", async () => {
+    await completedSubmission("user", "0198d9ec-9024-4d69-8bb8-9c13a73f6768");
+    const repository = createAdminRepository(database);
+
+    const published = await repository.publishPrivateResults(
+      new Date(Date.now() - 1_000),
+    );
+    const unpublished = await repository.unpublishPrivateResults();
+
+    expect(published.isOk()).toBe(true);
+    expect(unpublished.isOk()).toBe(true);
+    expect(await database.orm.select().from(submissionSources)).toHaveLength(1);
+    const [state] = await database.orm.select().from(contestState);
+    expect(state?.private_published_at).toBeNull();
+  });
+
+  it("未完了の提出がある間は公開状態を変更しない", async () => {
+    await database.orm.insert(users).values({ username: "user" });
+    await database.orm.insert(submissions).values({
+      id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
+      username: "user",
+      status: "queued",
+      upload_started_at: new Date(),
+    });
+    const repository = createAdminRepository(database);
+
+    const result = await repository.publishPrivateResults(
+      new Date(Date.now() - 1_000),
+    );
+
+    expect(result.isErr() && result.error.code).toBe("queue_not_drained");
+    const [state] = await database.orm.select().from(contestState);
+    expect(state?.private_published_at).toBeNull();
+  });
+});
+
+function openContest(): Config {
+  return {
+    ...config,
+    CONTEST_START_AT: new Date(Date.now() - 60_000),
+    CONTEST_END_AT: new Date(Date.now() + 60_000),
+  };
+}
+
+async function completedSubmission(username: string, id: string) {
+  await database.orm.insert(users).values({ username });
+  await database.orm.insert(submissions).values({
+    id,
+    username,
+    status: "completed",
+    upload_started_at: new Date(),
+  });
+  await database.orm.insert(submissionSources).values({
+    submission_id: id,
+    filename: "main.ts",
+    sha256: "a".repeat(64),
+    content: Buffer.from("console.log('hello')"),
+  });
+}

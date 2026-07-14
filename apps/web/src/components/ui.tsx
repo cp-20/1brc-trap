@@ -1,6 +1,7 @@
 import type { Verdict } from "@1brc/domain";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import type { ReactNode } from "react";
+
 import { verdictLabel } from "../models/labels.js";
 export { CodeBlock } from "./code-block.js";
 

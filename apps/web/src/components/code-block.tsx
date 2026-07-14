@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+
 import type { HighlightLanguage } from "../utils/syntax-highlighter.js";
+
 import styles from "./code-block.module.css";
 
 export function CodeBlock({

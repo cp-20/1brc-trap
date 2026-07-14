@@ -1,4 +1,4 @@
-import type { Language, Verdict } from "@1brc/domain";
+import { languages, type Language, type Verdict } from "@1brc/domain";
 
 const languageLabels: Record<Language, string> = {
   c: "C",
@@ -25,7 +25,7 @@ const verdictLabels: Record<Verdict, string> = {
   disqualified: "失格",
 };
 
-export function languageLabel(language: Language | string): string {
+export function languageLabel(language: string): string {
   return languageLabels[language as Language] ?? language;
 }
 
@@ -33,16 +33,4 @@ export function verdictLabel(verdict: Verdict): string {
   return verdictLabels[verdict];
 }
 
-export const selectableLanguages: Language[] = [
-  "c",
-  "cpp",
-  "go",
-  "rust",
-  "zig",
-  "csharp",
-  "other",
-  "javascript",
-  "typescript",
-  "bun",
-  "ruby",
-];
+export const selectableLanguages = languages;

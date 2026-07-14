@@ -1,6 +1,8 @@
+import { hasContestStarted, isSubmissionOpen } from "@1brc/domain";
 import { useQuery } from "@tanstack/react-query";
 import { Clock3, Send } from "lucide-react";
 import { Link } from "react-router-dom";
+
 import { ContestDocument } from "../components/contest/contest-document.js";
 import { ErrorAlert, PageHeader, Panel } from "../components/ui.js";
 import {
@@ -8,8 +10,8 @@ import {
   contestQueryKeys,
 } from "../gateways/contest-gateway.js";
 import { useClock } from "../gateways/use-clock.js";
-import { hasContestStarted, isSubmissionOpen } from "../models/contest.js";
 import { formatDate } from "../utils/format.js";
+
 import styles from "./contest-page.module.css";
 
 export function ContestPage() {

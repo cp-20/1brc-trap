@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
-import { extname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import Busboy from "busboy";
+
 import type { ExecutionKind, Language } from "@1brc/domain";
 import {
   executionKindSchema,
@@ -13,7 +14,18 @@ import {
   submissionPolicy,
   sourceExtensions,
 } from "@1brc/domain";
+import {
+  FormDataParseError,
+  MaxFilesExceededError,
+  MaxFileSizeExceededError,
+  MaxHeaderSizeExceededError,
+  MaxPartsExceededError,
+  MaxTotalSizeExceededError,
+  parseFormData,
+  type FileUpload,
+} from "@remix-run/form-data-parser";
 import { errAsync, okAsync, ResultAsync } from "neverthrow";
+
 import type { Config } from "../infrastructures/config.js";
 import type { RunnerClient } from "../infrastructures/runner-client.js";
 import type { SubmissionRepository } from "../repositories/submission-repository.js";
@@ -141,7 +153,10 @@ async function parseMultipart(
   id: string,
 ): Promise<ParsedUpload> {
   const contentType = request.headers.get("content-type");
-  if (!contentType?.startsWith("multipart/form-data")) {
+  if (
+    contentType?.split(";", 1)[0]?.trim().toLowerCase() !==
+    "multipart/form-data"
+  ) {
     throw new AppError(
       "bad_request",
       "multipart_required",
@@ -151,276 +166,220 @@ async function parseMultipart(
   if (!request.body) {
     throw new AppError("bad_request", "empty_upload", "提出内容が空です");
   }
-  const incoming = Readable.fromWeb(
-    request.body as unknown as NodeReadableStream,
-  );
   const directory = join(tmpdir(), `1brc-upload-${id}`);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const binaryPath = join(directory, "binary");
-  const sourcePath = join(directory, "source");
+  const files = new Map<
+    "source" | "binary",
+    {
+      path: string;
+      filename: string;
+      digest: ReturnType<typeof createHash>;
+    }
+  >();
+  const timeout = AbortSignal.timeout(submissionPolicy.uploadTimeoutMs);
+  const completed = new AbortController();
 
-  return await new Promise<ParsedUpload>((resolve, reject) => {
-    const fields = new Map<string, string>();
-    const files = new Map<
-      string,
+  try {
+    const signal = AbortSignal.any([request.signal, timeout, completed.signal]);
+    const body = request.body.pipeThrough(new TransformStream(), { signal });
+    const streamingRequest = new Request(request, {
+      body,
+      signal,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const form = await parseFormData(
+      streamingRequest,
       {
-        path: string;
-        filename: string;
-        truncated: boolean;
-        digest: ReturnType<typeof createHash>;
-      }
-    >();
-    const pending: Promise<void>[] = [];
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      incoming.destroy(new Error("upload timeout"));
-      reject(
-        new AppError(
-          "bad_request",
-          "upload_timeout",
-          "アップロードは15分以内に完了してください",
-        ),
+        maxFiles: 2,
+        maxParts: 4,
+        maxHeaderSize: 4 * 1024,
+        maxFileSize: submissionPolicy.binaryLimitBytes,
+        maxTotalSize:
+          submissionPolicy.sourceLimitBytes +
+          submissionPolicy.binaryLimitBytes +
+          128,
+      },
+      (file) => storeUpload(file, directory, files, signal),
+    );
+    validateFormShape(form);
+    const kindResult = executionKindSchema.safeParse(form.get("executionKind"));
+    if (!kindResult.success) {
+      throw new AppError(
+        "bad_request",
+        "invalid_execution_kind",
+        "実行形式が不正です",
       );
-    }, submissionPolicy.uploadTimeoutMs);
-
-    const finish = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      request.signal.removeEventListener("abort", onAbort);
-      callback();
+    }
+    const kind = kindResult.data;
+    if (kind !== "native" && form.has("language")) {
+      throw new AppError(
+        "bad_request",
+        "unexpected_language",
+        "スクリプト言語では実装言語を指定しません",
+      );
+    }
+    const requestedLanguage = form.get("language");
+    const language = inferLanguage(
+      kind,
+      typeof requestedLanguage === "string" ? requestedLanguage : undefined,
+    );
+    const sourceFile = files.get("source");
+    const binaryFile = files.get("binary");
+    if (!language || !sourceFile) {
+      throw invalidFile("source");
+    }
+    if (kind === "native" && !binaryFile) {
+      throw invalidFile("binary");
+    }
+    if (kind !== "native" && binaryFile) {
+      throw new AppError(
+        "bad_request",
+        "unexpected_binary",
+        "スクリプト言語では実行ファイルを指定しません",
+      );
+    }
+    const source = await readFile(sourceFile.path);
+    const artifact = kind === "native" ? binaryFile! : sourceFile;
+    return {
+      executionKind: kind,
+      language,
+      sourceFilename: sourceFile.filename,
+      source,
+      artifactPath: artifact.path,
+      artifactSha256: artifact.digest.digest("hex"),
+      cleanupDirectory: directory,
     };
-
-    const onAbort = () =>
-      finish(() =>
-        reject(
-          new AppError(
-            "bad_request",
-            "upload_aborted",
-            "アップロードが切断されました",
-          ),
-        ),
-      );
-    request.signal.addEventListener("abort", onAbort, { once: true });
-    incoming.once("error", (error) => finish(() => reject(error)));
-    let parser: ReturnType<typeof Busboy>;
-    try {
-      parser = Busboy({
-        headers: Object.fromEntries(request.headers.entries()),
-        defParamCharset: "utf8",
-        limits: {
-          fields: 4,
-          files: 2,
-          parts: 6,
-          fieldNameSize: 64,
-          fieldSize: 64,
-          fileSize: submissionPolicy.binaryLimitBytes,
-        },
-      });
-    } catch (error) {
-      clearTimeout(timer);
-      return reject(error);
-    }
-
-    parser.on("field", (name, value) => {
-      if (
-        (name !== "executionKind" && name !== "language") ||
-        fields.has(name)
-      ) {
-        finish(() =>
-          reject(
-            new AppError(
-              "bad_request",
-              "invalid_metadata",
-              "提出metadataが不正です",
-            ),
-          ),
-        );
-        return;
-      }
-      fields.set(name, value);
-    });
-    parser.on("file", (name, stream, info) => {
-      if (name !== "source" && name !== "binary") {
-        stream.resume();
-        finish(() =>
-          reject(
-            new AppError(
-              "bad_request",
-              "unexpected_file",
-              "ソースコードまたは実行ファイル以外は指定できません",
-            ),
-          ),
-        );
-        return;
-      }
-      if (files.has(name)) {
-        stream.resume();
-        finish(() =>
-          reject(
-            new AppError(
-              "bad_request",
-              "duplicate_file",
-              `${name}は1個だけ指定できます`,
-            ),
-          ),
-        );
-        return;
-      }
-      let filename: string;
-      try {
-        filename = sanitizeFilename(info.filename);
-      } catch (error) {
-        stream.resume();
-        finish(() => reject(error));
-        return;
-      }
-      const path = name === "source" ? sourcePath : binaryPath;
-      const limit =
-        name === "source"
-          ? submissionPolicy.sourceLimitBytes
-          : submissionPolicy.binaryLimitBytes;
-      let bytes = 0;
-      let truncated = false;
-      const digest = createHash("sha256");
-      const output = createWriteStream(path, {
-        mode: name === "binary" ? 0o700 : 0o600,
-      });
-      const limiter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          bytes += chunk.length;
-          if (bytes > limit) {
-            truncated = true;
-            callback();
-            return;
-          }
-          digest.update(chunk);
-          callback(null, chunk);
-        },
-      });
-      stream.on("limit", () => (truncated = true));
-      const done = new Promise<void>((resolveFile, rejectFile) => {
-        stream.once("error", rejectFile);
-        limiter.once("error", rejectFile);
-        output.once("error", rejectFile);
-        output.once("close", resolveFile);
-      });
-      pending.push(done);
-      files.set(name, { path, filename, truncated, digest });
-      stream.pipe(limiter).pipe(output);
-      stream.on("end", () => {
-        const entry = files.get(name);
-        if (entry) entry.truncated = truncated;
-      });
-    });
-    for (const event of ["fieldsLimit", "filesLimit", "partsLimit"] as const) {
-      parser.once(event, () =>
-        finish(() =>
-          reject(
-            new AppError(
-              "bad_request",
-              "multipart_limit",
-              "multipartのpart数が上限を超えています",
-            ),
-          ),
-        ),
-      );
-    }
-    parser.once("error", (error) => finish(() => reject(error)));
-    parser.once("close", () => {
-      void Promise.all(pending)
-        .then(async () => {
-          if (settled) return;
-          const kindResult = executionKindSchema.safeParse(
-            fields.get("executionKind"),
-          );
-          if (!kindResult.success) {
-            return finish(() =>
-              reject(
-                new AppError(
-                  "bad_request",
-                  "invalid_execution_kind",
-                  "実行形式が不正です",
-                ),
-              ),
-            );
-          }
-          const kind = kindResult.data;
-          if (kind !== "native" && fields.has("language")) {
-            return finish(() =>
-              reject(
-                new AppError(
-                  "bad_request",
-                  "unexpected_language",
-                  "スクリプト言語では実装言語を指定しません",
-                ),
-              ),
-            );
-          }
-          const language = inferLanguage(kind, fields.get("language"));
-          const sourceFile = files.get("source");
-          const binaryFile = files.get("binary");
-          if (!language || !sourceFile || sourceFile.truncated) {
-            return finish(() =>
-              reject(
-                new AppError(
-                  "bad_request",
-                  "invalid_source",
-                  "ソースコードが不足しているか、1 MiBを超えています",
-                ),
-              ),
-            );
-          }
-          if (kind === "native" && (!binaryFile || binaryFile.truncated)) {
-            return finish(() =>
-              reject(
-                new AppError(
-                  "bad_request",
-                  "invalid_binary",
-                  "Nativeの実行ファイルが不足しているか、64 MiBを超えています",
-                ),
-              ),
-            );
-          }
-          if (kind !== "native" && binaryFile) {
-            return finish(() =>
-              reject(
-                new AppError(
-                  "bad_request",
-                  "unexpected_binary",
-                  "スクリプト言語では実行ファイルを指定しません",
-                ),
-              ),
-            );
-          }
-          const source = await readFile(sourceFile.path);
-          const artifactPath =
-            kind === "native" ? binaryFile!.path : sourceFile.path;
-          const artifactSha256 =
-            kind === "native"
-              ? binaryFile!.digest.digest("hex")
-              : sourceFile.digest.digest("hex");
-          finish(() =>
-            resolve({
-              executionKind: kind,
-              language,
-              sourceFilename: sourceFile.filename,
-              source,
-              artifactPath,
-              artifactSha256,
-              cleanupDirectory: directory,
-            }),
-          );
-        })
-        .catch((error) => finish(() => reject(error)));
-    });
-    incoming.pipe(parser);
-  }).catch(async (error) => {
+  } catch (error) {
     await rm(directory, { recursive: true, force: true });
+    if (timeout.aborted) {
+      throw new AppError(
+        "bad_request",
+        "upload_timeout",
+        "アップロードは15分以内に完了してください",
+      );
+    }
+    if (request.signal.aborted) {
+      throw new AppError(
+        "bad_request",
+        "upload_aborted",
+        "アップロードが切断されました",
+      );
+    }
+    if (error instanceof MaxFileSizeExceededError) {
+      throw invalidFile("binary");
+    }
+    if (
+      error instanceof MaxFilesExceededError ||
+      error instanceof MaxHeaderSizeExceededError ||
+      error instanceof MaxPartsExceededError ||
+      error instanceof MaxTotalSizeExceededError
+    ) {
+      throw new AppError(
+        "bad_request",
+        "multipart_limit",
+        "multipartの上限を超えています",
+        error,
+      );
+    }
+    if (error instanceof FormDataParseError) {
+      throw new AppError(
+        "bad_request",
+        "invalid_upload",
+        "multipartが不正です",
+        error,
+      );
+    }
     throw error;
+  } finally {
+    completed.abort();
+  }
+}
+
+async function storeUpload(
+  file: FileUpload,
+  directory: string,
+  files: Map<
+    "source" | "binary",
+    {
+      path: string;
+      filename: string;
+      digest: ReturnType<typeof createHash>;
+    }
+  >,
+  signal: AbortSignal,
+) {
+  if (file.fieldName !== "source" && file.fieldName !== "binary") {
+    throw new AppError(
+      "bad_request",
+      "unexpected_file",
+      "ソースコードまたは実行ファイル以外は指定できません",
+    );
+  }
+  const fieldName = file.fieldName;
+  if (files.has(fieldName)) {
+    throw new AppError(
+      "bad_request",
+      "duplicate_file",
+      `${fieldName}は1個だけ指定できます`,
+    );
+  }
+  const filename = sanitizeFilename(file.name);
+  const path = join(directory, fieldName);
+  const limit =
+    fieldName === "source"
+      ? submissionPolicy.sourceLimitBytes
+      : submissionPolicy.binaryLimitBytes;
+  const digest = createHash("sha256");
+  let bytes = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.length;
+      if (bytes > limit) return callback(invalidFile(fieldName));
+      digest.update(chunk);
+      callback(null, chunk);
+    },
   });
+  await pipeline(
+    Readable.fromWeb(file.stream() as unknown as NodeReadableStream),
+    limiter,
+    createWriteStream(path, {
+      mode: fieldName === "binary" ? 0o700 : 0o600,
+    }),
+    { signal },
+  );
+  files.set(fieldName, { path, filename, digest });
+  return path;
+}
+
+function validateFormShape(form: FormData) {
+  const allowed = new Set(["executionKind", "language", "source", "binary"]);
+  const entries = [...form.entries()];
+  if (
+    entries.some(
+      ([name, value]) =>
+        !allowed.has(name) || (typeof value === "string" && value.length > 64),
+    ) ||
+    form.getAll("executionKind").length !== 1 ||
+    form.getAll("language").length > 1 ||
+    form.getAll("source").length !== 1 ||
+    form.getAll("binary").length > 1
+  ) {
+    throw new AppError(
+      "bad_request",
+      "invalid_metadata",
+      "提出metadataが不正です",
+    );
+  }
+}
+
+function invalidFile(file: "source" | "binary") {
+  return new AppError(
+    "bad_request",
+    file === "source" ? "invalid_source" : "invalid_binary",
+    file === "source"
+      ? "ソースコードが不足しているか、1 MiBを超えています"
+      : "Nativeの実行ファイルが不足しているか、64 MiBを超えています",
+  );
 }
 
 async function validateUpload(upload: ParsedUpload) {
@@ -477,7 +436,7 @@ async function validateUpload(upload: ParsedUpload) {
 
 function sanitizeFilename(filename: string): string {
   const base = filename.split(/[\\/]/).pop()?.trim() ?? "";
-  if (!base || base.length > 255 || /[\u0000-\u001f\u007f]/.test(base)) {
+  if (!base || base.length > 255 || /[\u0000-\u001F\u007F]/.test(base)) {
     throw new AppError(
       "bad_request",
       "invalid_filename",

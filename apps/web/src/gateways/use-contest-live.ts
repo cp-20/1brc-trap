@@ -1,6 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
 import type { Language } from "@1brc/domain";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
+
 import {
   contestGateway,
   contestQueryKeys,
@@ -8,7 +9,7 @@ import {
 } from "./contest-gateway.js";
 
 export function useContestLive(
-  board: "public" | "private",
+  board: LeaderboardBoard,
   language: "all" | Language = "all",
 ) {
   const queryClient = useQueryClient();
@@ -33,3 +34,4 @@ export function useContestLive(
     [board, language, queryClient],
   );
 }
+import type { LeaderboardBoard } from "@1brc/domain";

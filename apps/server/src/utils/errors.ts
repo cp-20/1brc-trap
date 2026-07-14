@@ -19,9 +19,6 @@ export class AppError extends Error {
   }
 }
 
-export type AppResult<T> = Result<T, AppError>;
-export type AppResultAsync<T> = ResultAsync<T, AppError>;
-
 export function errorStatus(
   error: AppError,
 ): 400 | 401 | 403 | 404 | 409 | 500 {
@@ -41,4 +38,3 @@ export function errorStatus(
       return 500;
   }
 }
-import type { Result, ResultAsync } from "neverthrow";

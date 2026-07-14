@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ExecutionKind, Language } from "@1brc/domain";
+
+import {
+  activeSubmissionStatuses,
+  hasContestStarted,
+  isSubmissionOpen,
+  type ExecutionKind,
+  type Language,
+} from "@1brc/domain";
 import {
   and,
   desc,
@@ -14,6 +21,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import { err, ok } from "neverthrow";
+
 import type { Config } from "../infrastructures/config.js";
 import type { Database } from "../infrastructures/database.js";
 import {
@@ -24,7 +32,6 @@ import {
 } from "../infrastructures/schema.js";
 import { AppError } from "../utils/errors.js";
 
-export type SubmissionReservation = { id: string; uploadStartedAt: string };
 export type SubmissionRepository = ReturnType<
   typeof createSubmissionRepository
 >;
@@ -50,23 +57,34 @@ export function createSubmissionRepository(database: Database) {
             now: sql<Date>`CURRENT_TIMESTAMP(6)`.mapWith(
               submissions.upload_started_at,
             ),
-            is_open: sql<boolean>`CURRENT_TIMESTAMP(6) <= ${config.CONTEST_END_AT}`,
           })
           .from(sql`DUAL`);
-        if (!clock?.is_open)
+        if (!clock)
           return err(
             new AppError(
-              "contest_closed",
-              "contest_closed",
-              "提出受付は終了しました",
+              "infrastructure",
+              "database_clock_unavailable",
+              "現在時刻を取得できませんでした",
             ),
           );
-        if (clock.now < config.CONTEST_START_AT)
+        const schedule = {
+          startAt: config.CONTEST_START_AT,
+          endAt: config.CONTEST_END_AT,
+        };
+        if (!hasContestStarted(schedule, clock.now))
           return err(
             new AppError(
               "conflict",
               "contest_not_started",
               "コンテストはまだ始まっていません",
+            ),
+          );
+        if (!isSubmissionOpen(schedule, clock.now))
+          return err(
+            new AppError(
+              "contest_closed",
+              "contest_closed",
+              "提出受付は終了しました",
             ),
           );
         const [active] = await transaction
@@ -75,10 +93,10 @@ export function createSubmissionRepository(database: Database) {
           .where(
             and(
               eq(submissions.username, username),
-              inArray(submissions.status, ["uploading", "queued", "running"]),
+              inArray(submissions.status, activeSubmissionStatuses),
             ),
           );
-        if (Number(active?.active_count ?? 0) > 0) {
+        if ((active?.active_count ?? 0) > 0) {
           return err(
             new AppError(
               "conflict",

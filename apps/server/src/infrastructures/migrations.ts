@@ -1,7 +1,9 @@
 import { fileURLToPath } from "node:url";
+
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import mysql from "mysql2/promise";
+
 import type { Config } from "./config.js";
 import { createOrm } from "./database.js";
 

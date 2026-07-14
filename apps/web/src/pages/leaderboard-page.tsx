@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import type { Language } from "@1brc/domain";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+
 import { LeaderboardTable } from "../components/leaderboard-table.js";
 import { Select } from "../components/select.js";
 import { ErrorAlert, PageHeader, Panel } from "../components/ui.js";
@@ -10,6 +11,7 @@ import {
 } from "../gateways/contest-gateway.js";
 import { useContestLive } from "../gateways/use-contest-live.js";
 import { selectableLanguages, languageLabel } from "../models/labels.js";
+
 import styles from "./leaderboard-page.module.css";
 
 export function LeaderboardPage() {
@@ -17,7 +19,7 @@ export function LeaderboardPage() {
     queryKey: contestQueryKeys.overview,
     queryFn: contestGateway.contest,
   });
-  const [board, setBoard] = useState<"public" | "private">("public");
+  const [board, setBoard] = useState<LeaderboardBoard>("public");
   const [language, setLanguage] = useState<"all" | Language>("all");
   useEffect(() => {
     setBoard(contest.data?.privatePublishedAt ? "private" : "public");
@@ -100,3 +102,4 @@ export function LeaderboardPage() {
     </div>
   );
 }
+import type { LeaderboardBoard } from "@1brc/domain";

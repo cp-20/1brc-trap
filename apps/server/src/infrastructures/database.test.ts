@@ -1,8 +1,9 @@
 import { err, ok } from "neverthrow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AppError } from "../utils/errors.js";
 import type { Config } from "./config.js";
 import { createDatabase } from "./database.js";
-import { AppError } from "../utils/errors.js";
 
 const mocks = vi.hoisted(() => {
   const connection = {

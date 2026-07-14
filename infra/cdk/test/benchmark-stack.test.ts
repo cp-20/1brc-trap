@@ -1,6 +1,7 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
+
 import { BenchmarkStack } from "../lib/benchmark-stack.js";
 
 describe("BenchmarkStack", () => {

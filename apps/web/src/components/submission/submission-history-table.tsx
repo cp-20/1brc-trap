@@ -1,11 +1,13 @@
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
+
 import type { SubmissionItem } from "../../gateways/submission-gateway.js";
 import { languageLabel } from "../../models/labels.js";
 import { formatDate } from "../../utils/format.js";
-import styles from "../../pages/submissions-page.module.css";
 import { AnimatedDuration } from "../animated-number.js";
 import { Panel } from "../ui.js";
+
+import styles from "../../pages/submissions-page.module.css";
 
 export function SubmissionHistoryTable({
   submissions,

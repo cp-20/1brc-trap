@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { err, ok, type Result } from "neverthrow";
+
 import type { AppVariables, AuthUser } from "../middlewares/auth.js";
 import { AppError, errorStatus } from "../utils/errors.js";
 

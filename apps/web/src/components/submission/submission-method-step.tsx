@@ -1,20 +1,22 @@
-import { useMutation } from "@tanstack/react-query";
 import { submissionPolicy } from "@1brc/domain";
+import { useMutation } from "@tanstack/react-query";
 import { Copy, KeyRound, Send, Terminal, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
-import { SourcePreview } from "../source-preview.js";
-import { CodeBlock } from "../code-block.js";
-import { ErrorAlert } from "../ui.js";
+
 import { accountGateway } from "../../gateways/account-gateway.js";
-import type { SubmissionDraft } from "../../models/submission.js";
 import {
   createCurlExample,
   previewLanguage,
   sourceAccept,
 } from "../../models/submission-options.js";
-import styles from "../../pages/submit-page.module.css";
+import type { SubmissionDraft } from "../../models/submission.js";
 import { formatBytes } from "../../utils/format.js";
+import { CodeBlock } from "../code-block.js";
+import { SourcePreview } from "../source-preview.js";
+import { ErrorAlert } from "../ui.js";
 import { CopyableCode, FileField, StepHeading } from "./submit-step.js";
+
+import styles from "../../pages/submit-page.module.css";
 
 type SubmitMethod = "browser" | "cli";
 

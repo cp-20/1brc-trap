@@ -1,5 +1,6 @@
 import type { Language } from "@1brc/domain";
 import { and, asc, count, countDistinct, eq, ne } from "drizzle-orm";
+
 import type { LeaderboardRecord } from "../domain/leaderboard.js";
 import type { Database } from "../infrastructures/database.js";
 import {
@@ -47,8 +48,8 @@ export function createContestRepository(database: Database) {
             .where(ne(submissions.status, "rejected")),
         )
         .map((rows) => ({
-          participants: Number(rows[0]?.participant_count ?? 0),
-          totalSubmissions: Number(rows[0]?.submission_count ?? 0),
+          participants: rows[0]?.participant_count ?? 0,
+          totalSubmissions: rows[0]?.submission_count ?? 0,
         }));
     },
     leaderboard(language?: Language) {

@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "data",
+    "*.out",
+    "*.csv",
+    "*.zst",
+    "cdk.out",
+    "coverage",
+    "bun.lock",
+    "optimized/typescript/main.ts"
+  ],
+  "printWidth": 80,
+  "sortImports": true,
+  "sortPackageJson": false
+}

@@ -1,5 +1,6 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
+
 import styles from "./select.module.css";
 
 export type SelectOption = {

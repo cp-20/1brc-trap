@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
+
 import {
+  benchmarkAttemptResultSchema,
+  benchmarkResultSchema,
+  compareNanoseconds,
   datasetManifestSchema,
   executionKindSchema,
+  hasContestStarted,
   inferLanguage,
+  isSubmissionActive,
+  isSubmissionOpen,
+  nativeLanguages,
+  runnerJobResultSchema,
   shouldStopAfterFirstAttempt,
   sourceExtensions,
 } from "./index.js";
@@ -18,11 +27,109 @@ describe("Bun提出形式", () => {
   });
 });
 
+describe("submission rules", () => {
+  it("Nativeで選べる言語だけを共有する", () => {
+    expect(nativeLanguages).toEqual([
+      "c",
+      "cpp",
+      "go",
+      "rust",
+      "zig",
+      "csharp",
+      "other",
+    ]);
+    expect(inferLanguage("native", "rust")).toBe("rust");
+    expect(inferLanguage("native", "typescript")).toBeNull();
+  });
+
+  it("アップロードから計測中までを処理中とする", () => {
+    expect(isSubmissionActive("uploading")).toBe(true);
+    expect(isSubmissionActive("queued")).toBe(true);
+    expect(isSubmissionActive("running")).toBe(true);
+    expect(isSubmissionActive("completed")).toBe(false);
+  });
+});
+
+describe("contest schedule", () => {
+  const contest = {
+    startAt: "2026-07-20T00:00:00.000Z",
+    endAt: "2026-07-21T00:00:00.000Z",
+  };
+
+  it("開始前は提出を閉じ、開始時刻から終了時刻までは受け付ける", () => {
+    expect(
+      hasContestStarted(contest, new Date("2026-07-19T23:59:59.999Z")),
+    ).toBe(false);
+    expect(
+      isSubmissionOpen(contest, new Date("2026-07-20T00:00:00.000Z")),
+    ).toBe(true);
+    expect(
+      isSubmissionOpen(contest, new Date("2026-07-21T00:00:00.000Z")),
+    ).toBe(true);
+    expect(
+      isSubmissionOpen(contest, new Date("2026-07-21T00:00:00.001Z")),
+    ).toBe(false);
+  });
+});
+
+describe("nanosecond scores", () => {
+  it("Numberの精度を超える値も比較する", () => {
+    expect(compareNanoseconds("9007199254740993", "9007199254740992")).toBe(1);
+    expect(compareNanoseconds("10", "10")).toBe(0);
+  });
+});
+
 describe("benchmark policy", () => {
   it("60秒を超えた初回計測だけで打ち切る", () => {
     expect(shouldStopAfterFirstAttempt(1, "60000000000")).toBe(false);
     expect(shouldStopAfterFirstAttempt(1, "60000000001")).toBe(true);
     expect(shouldStopAfterFirstAttempt(2, "60000000001")).toBe(false);
+  });
+});
+
+describe("benchmark result protocol", () => {
+  const accepted = {
+    verdict: "accepted" as const,
+    durationsNs: ["1", "3", "2"] as [string, string, string],
+    medianNs: "2",
+    error: null,
+  };
+
+  it("acceptedだけが計測時間を持ち、失敗結果では時間を公開しない", () => {
+    expect(benchmarkResultSchema.safeParse(accepted).success).toBe(true);
+    expect(
+      benchmarkResultSchema.safeParse({
+        verdict: "wrong_answer",
+        durationsNs: null,
+        medianNs: null,
+        error: "mismatch",
+      }).success,
+    ).toBe(true);
+    expect(
+      benchmarkResultSchema.safeParse({
+        verdict: "runtime_error",
+        durationsNs: ["1"],
+        medianNs: "1",
+        error: "failed",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("containerの1試行結果とrunner-server間の結果を同じschemaで検証する", () => {
+    expect(
+      benchmarkAttemptResultSchema.safeParse({
+        verdict: "accepted",
+        durationNs: "123",
+        error: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      runnerJobResultSchema.safeParse({
+        public: accepted,
+        private: null,
+        environmentId: "benchmark-v2",
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -91,11 +198,11 @@ describe("dataset manifest", () => {
 
   it("公開計測と非公開計測のdatasetをどちらも要求する", () => {
     const invalid = structuredClone(manifest);
-    for (const artifact of invalid.artifacts.filter(
+    for (const item of invalid.artifacts.filter(
       (candidate) => !candidate.isPublic,
     )) {
-      artifact.isPublic = true;
-      artifact.objectKey = artifact.objectKey.replace("/private/", "/public/");
+      item.isPublic = true;
+      item.objectKey = item.objectKey.replace("/private/", "/public/");
     }
     expect(issues(invalid)).toContain(
       "at least one private dataset is required",

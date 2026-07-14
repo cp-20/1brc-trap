@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { LeaderboardEntry } from "./leaderboard.js";
+
 import { detectLeaderboardRecordUpdates } from "./leaderboard-updates.js";
+import type { LeaderboardEntry } from "./leaderboard.js";
 
 describe("detectLeaderboardRecordUpdates", () => {
   it("本人の代表提出が変わった場合だけ実行時間差分を返す", () => {

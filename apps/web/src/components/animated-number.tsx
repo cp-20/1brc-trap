@@ -1,6 +1,8 @@
 import NumberFlow, { type Format, NumberFlowGroup } from "@number-flow/react";
 import { useEffect, useState } from "react";
+
 import { formatRemaining } from "../utils/format.js";
+
 import styles from "./animated-number.module.css";
 
 const integerFormat: Format = {

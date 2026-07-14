@@ -1,4 +1,5 @@
 import { errAsync, ResultAsync } from "neverthrow";
+
 import { serializeSubmission } from "../domain/submission.js";
 import type { AuthUser } from "../middlewares/auth.js";
 import type { ContestRepository } from "../repositories/contest-repository.js";

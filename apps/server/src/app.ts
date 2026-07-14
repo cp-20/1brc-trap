@@ -1,22 +1,24 @@
 import { randomUUID } from "node:crypto";
+
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { secureHeaders } from "hono/secure-headers";
+
 import type { Config } from "./infrastructures/config.js";
 import type { Database } from "./infrastructures/database.js";
 import type { Logger } from "./infrastructures/logger.js";
 import { authMiddleware, type AppVariables } from "./middlewares/auth.js";
+import type { AccountRepository } from "./repositories/account-repository.js";
 import { createAccountRouter } from "./routers/account-router.js";
 import { createAdminRouter } from "./routers/admin-router.js";
 import { createContestRouter } from "./routers/contest-router.js";
 import { errorResponse, type RouterEnv } from "./routers/router-context.js";
 import { createSubmissionRouter } from "./routers/submission-router.js";
-import type { AdminService } from "./services/admin-service.js";
 import type { AccountService } from "./services/account-service.js";
+import type { AdminService } from "./services/admin-service.js";
 import type { ContestService } from "./services/contest-service.js";
 import type { SubmissionQueryService } from "./services/submission-query-service.js";
 import type { SubmissionService } from "./services/submission-service.js";
-import type { AccountRepository } from "./repositories/account-repository.js";
 import { AppError, errorStatus } from "./utils/errors.js";
 
 export type AppDependencies = {

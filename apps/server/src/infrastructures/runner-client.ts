@@ -1,23 +1,19 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { Client, type ConnectConfig } from "ssh2";
-import { ResultAsync } from "neverthrow";
-import pRetry from "p-retry";
+
 import {
   benchmarkPolicy,
-  type BenchmarkResult,
+  runnerJobResultSchema,
   type ExecutionKind,
-  type Language,
+  type RunnerJobResult,
 } from "@1brc/domain";
-import type { Config } from "./config.js";
-import { AppError } from "../utils/errors.js";
+import { ResultAsync } from "neverthrow";
+import pRetry from "p-retry";
+import { Client, type ConnectConfig } from "ssh2";
 
-export type RunnerJobResult = {
-  public: BenchmarkResult;
-  private: BenchmarkResult | null;
-  environmentId: string;
-};
+import { AppError } from "../utils/errors.js";
+import type { Config } from "./config.js";
 
 export interface RunnerClient {
   upload(
@@ -29,7 +25,6 @@ export interface RunnerClient {
   run(
     submissionId: string,
     kind: ExecutionKind,
-    language: Language,
   ): ResultAsync<RunnerJobResult, AppError>;
   cleanup(submissionId: string): ResultAsync<void, AppError>;
 }
@@ -69,16 +64,16 @@ export async function createRunnerClient(
         runnerError,
       );
     },
-    run(submissionId, kind, language) {
+    run(submissionId, kind) {
       return ResultAsync.fromPromise(
         exec(
           connection,
-          `run ${submissionId} ${kind} ${language}`,
+          `run ${submissionId} ${kind}`,
           (benchmarkPolicy.repetitions * 2 * benchmarkPolicy.timeoutSeconds +
             5 * 60) *
             1000,
         ).then((output) => {
-          const parsed = JSON.parse(output) as RunnerJobResult;
+          const parsed = runnerJobResultSchema.parse(JSON.parse(output));
           if (parsed.environmentId !== config.BENCHMARK_ENVIRONMENT_ID) {
             throw new Error(
               `runner environment mismatch: ${parsed.environmentId}`,

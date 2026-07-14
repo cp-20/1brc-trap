@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
+
 import type { MiddlewareHandler } from "hono";
+
 import type { Config } from "../infrastructures/config.js";
 import type { AccountRepository } from "../repositories/account-repository.js";
 import { errorResponse } from "../routers/router-context.js";
