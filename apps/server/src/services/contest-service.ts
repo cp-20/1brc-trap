@@ -1,4 +1,8 @@
-import { benchmarkPolicy, type LeaderboardEntry } from "@1brc/domain";
+import {
+  benchmarkPolicy,
+  type Language,
+  type LeaderboardEntry,
+} from "@1brc/domain";
 import { errAsync, ResultAsync } from "neverthrow";
 import { buildLeaderboard } from "../domain/leaderboard.js";
 import type { Config } from "../infrastructures/config.js";
@@ -63,7 +67,7 @@ export function createContestService(
     },
     leaderboard(
       requestedBoard: string | undefined,
-      language: string | undefined,
+      language: Language | undefined,
     ) {
       return ResultAsync.combine([
         repository.privatePublished(),
@@ -78,7 +82,7 @@ export function createContestService(
     },
     liveSnapshot(
       requestedBoard: string | undefined,
-      language: string | undefined,
+      language: Language | undefined,
     ) {
       const key = `${requestedBoard ?? "public"}:${language ?? "all"}`;
       return liveSnapshotCache(key, () =>

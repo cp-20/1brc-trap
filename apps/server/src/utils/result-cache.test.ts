@@ -22,4 +22,24 @@ describe("createResultCache", () => {
     await cached("key", load);
     expect(load).toHaveBeenCalledOnce();
   });
+
+  it("TTL後は新しい値を読み込み、SSEへ古い状態を配り続けない", async () => {
+    vi.useFakeTimers();
+    try {
+      const load = vi
+        .fn()
+        .mockReturnValueOnce(okAsync<string, Error>("first"))
+        .mockReturnValueOnce(okAsync<string, Error>("second"));
+      const cached = createResultCache<string, Error>(1_000);
+      await cached("key", load);
+
+      await vi.advanceTimersByTimeAsync(1_001);
+      const result = await cached("key", load);
+
+      expect(result.isOk() && result.value).toBe("second");
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

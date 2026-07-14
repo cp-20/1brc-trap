@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { secureHeaders } from "hono/secure-headers";
-import type { RowDataPacket } from "mysql2/promise";
 import type { Config } from "./infrastructures/config.js";
 import type { Database } from "./infrastructures/database.js";
 import type { Logger } from "./infrastructures/logger.js";
@@ -17,11 +16,13 @@ import type { AccountService } from "./services/account-service.js";
 import type { ContestService } from "./services/contest-service.js";
 import type { SubmissionQueryService } from "./services/submission-query-service.js";
 import type { SubmissionService } from "./services/submission-service.js";
+import type { AccountRepository } from "./repositories/account-repository.js";
 import { AppError, errorStatus } from "./utils/errors.js";
 
 export type AppDependencies = {
   config: Config;
   database: Database;
+  authentication: AccountRepository;
   logger: Logger;
   contest: ContestService;
   account: AccountService;
@@ -34,8 +35,7 @@ export function createApiRoutes(dependencies: AppDependencies) {
   return new Hono<RouterEnv>()
     .get("/healthz", (context) => context.json({ ok: true }))
     .get("/readyz", async (context) => {
-      const result =
-        await dependencies.database.query<RowDataPacket[]>("SELECT 1 AS ok");
+      const result = await dependencies.database.ping();
       return result.isOk()
         ? context.json({ ok: true })
         : context.json({ ok: false }, 503);
@@ -71,7 +71,10 @@ export function createApp(dependencies: AppDependencies) {
     context.header("X-Request-Id", context.get("requestId"));
   });
   app.use("*", secureHeaders());
-  app.use("/api/*", authMiddleware(dependencies.database, dependencies.config));
+  app.use(
+    "/api/*",
+    authMiddleware(dependencies.authentication, dependencies.config),
+  );
   app.use("/api/*", async (context, next) => {
     if (
       !["GET", "HEAD", "OPTIONS"].includes(context.req.method) &&

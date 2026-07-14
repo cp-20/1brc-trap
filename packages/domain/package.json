@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run src --passWithNoTests"
+    "test": "vitest run src --passWithNoTests",
+    "test:coverage": "vitest run src --coverage --coverage.include='src/**/*.ts' --coverage.exclude='src/**/*.test.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.thresholds.lines=85"
   },
   "dependencies": {
     "zod": "^4.4.3"

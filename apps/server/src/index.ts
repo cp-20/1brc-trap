@@ -18,8 +18,8 @@ import { createSubmissionService } from "./services/submission-service.js";
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
-const migrated = await migrateDatabase(config);
-logger.info("MariaDB migration completed", { migrated });
+await migrateDatabase(config);
+logger.info("MariaDB migration completed");
 const database = createDatabase(config);
 const runner = await createRunnerClient(config);
 const contestRepository = createContestRepository(database);
@@ -30,6 +30,7 @@ const datasets = createR2Signer(config);
 const app = createApp({
   config,
   database,
+  authentication: accountRepository,
   logger,
   contest: createContestService(contestRepository, datasets, config),
   account: createAccountService(accountRepository),

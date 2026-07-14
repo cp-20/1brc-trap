@@ -9,7 +9,8 @@
     "synth": "cdk synth",
     "bootstrap": "cdk bootstrap --app ''",
     "deploy": "cdk deploy",
-    "test": "vitest run"
+    "test": "vitest run test/benchmark-stack.test.ts",
+    "test:coverage": "vitest run test/benchmark-stack.test.ts --coverage --coverage.include='lib/**/*.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.thresholds.lines=90"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.261.0",

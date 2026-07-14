@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json && esbuild src/gateway.ts --bundle --platform=node --format=esm --outfile=dist/gateway.js",
     "start": "bun dist/gateway.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run src"
+    "test": "vitest run src",
+    "test:coverage": "vitest run src --coverage --coverage.include='src/**/*.ts' --coverage.exclude='src/**/*.test.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.thresholds.lines=8"
   },
   "dependencies": {
     "@1brc/domain": "workspace:*",

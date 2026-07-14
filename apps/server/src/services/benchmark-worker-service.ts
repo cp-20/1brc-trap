@@ -1,17 +1,25 @@
-import type { BenchmarkResult, ExecutionKind, Language } from "@1brc/domain";
-import type { PoolConnection, RowDataPacket } from "mysql2/promise";
-import { ok } from "neverthrow";
+import type { BenchmarkResult } from "@1brc/domain";
+import { and, eq, lt, sql } from "drizzle-orm";
+import { err, ok, type ResultAsync } from "neverthrow";
 import type { Config } from "../infrastructures/config.js";
-import type { Database } from "../infrastructures/database.js";
+import {
+  createOrm,
+  type Database,
+  type Orm,
+} from "../infrastructures/database.js";
 import type { Logger } from "../infrastructures/logger.js";
 import type { RunnerClient } from "../infrastructures/runner-client.js";
+import {
+  benchmarkRuns,
+  contestState,
+  submissions,
+} from "../infrastructures/schema.js";
+import { AppError } from "../utils/errors.js";
 
-type JobRow = RowDataPacket & {
-  id: string;
-  username: string;
-  execution_kind: ExecutionKind;
-  language: Language;
-};
+type JobRow = Pick<
+  typeof submissions.$inferSelect,
+  "id" | "username" | "execution_kind" | "language"
+>;
 
 export type BenchmarkWorkerService = ReturnType<
   typeof createBenchmarkWorkerService
@@ -45,18 +53,26 @@ export function createBenchmarkWorkerService(
     let waitingLogged = false;
     while (!stopping) {
       const lockConnection = await database.pool.getConnection();
+      const lockDatabase = createOrm(lockConnection);
       let acquired = false;
       try {
-        const [lockRows] = await lockConnection.query<
-          (RowDataPacket & { acquired: number })[]
-        >("SELECT GET_LOCK('1brc_benchmark_worker', 0) AS acquired");
-        acquired = lockRows[0]?.acquired === 1;
+        const [lock] = await lockDatabase
+          .select({
+            acquired: sql<number>`GET_LOCK('1brc_benchmark_worker', 0)`,
+          })
+          .from(sql`DUAL`);
+        acquired = lock?.acquired === 1;
         if (acquired) {
-          await validateEnvironment(lockConnection);
-          const recovered = await database.execute(
-            `UPDATE submissions
-                SET status = 'infrastructure_error', infrastructure_error = 'worker restarted during benchmark'
-              WHERE status = 'running'`,
+          const environment = await validateEnvironment();
+          if (environment.isErr()) throw environment.error;
+          const recovered = await database.result(
+            database.orm
+              .update(submissions)
+              .set({
+                status: "infrastructure_error",
+                infrastructure_error: "worker restarted during benchmark",
+              })
+              .where(eq(submissions.status, "running")),
           );
           if (recovered.isErr()) throw recovered.error;
           logger.info("benchmark worker started", {
@@ -67,9 +83,11 @@ export function createBenchmarkWorkerService(
       } finally {
         try {
           if (acquired) {
-            await lockConnection.query(
-              "SELECT RELEASE_LOCK('1brc_benchmark_worker')",
-            );
+            await lockDatabase
+              .select({
+                released: sql<number>`RELEASE_LOCK('1brc_benchmark_worker')`,
+              })
+              .from(sql`DUAL`);
           }
         } finally {
           lockConnection.release();
@@ -88,8 +106,11 @@ export function createBenchmarkWorkerService(
 
   async function runLoop() {
     while (!stopping) {
-      const heartbeat = await database.execute(
-        "UPDATE contest_state SET worker_heartbeat_at = CURRENT_TIMESTAMP(6) WHERE singleton_id = 1",
+      const heartbeat = await database.result(
+        database.orm
+          .update(contestState)
+          .set({ worker_heartbeat_at: sql`CURRENT_TIMESTAMP(6)` })
+          .where(eq(contestState.singleton_id, 1)),
       );
       if (heartbeat.isErr()) {
         logger.error("failed to update worker heartbeat", {
@@ -112,6 +133,25 @@ export function createBenchmarkWorkerService(
         await delay(2_000);
         continue;
       }
+      if (!job.execution_kind || !job.language) {
+        await persistInfrastructureFailure(
+          () =>
+            markInfrastructureFailure(
+              database,
+              job.id,
+              "queued submission is missing execution metadata",
+            ),
+          {
+            isStopping: () => stopping,
+            onRetry: (error) =>
+              logger.error("failed to persist invalid queue entry; retrying", {
+                submissionId: job.id,
+                error: error.message,
+              }),
+          },
+        );
+        continue;
+      }
       logger.info("benchmark started", {
         submissionId: job.id,
         username: job.username,
@@ -123,7 +163,18 @@ export function createBenchmarkWorkerService(
           submissionId: job.id,
           error: result.error.message,
         });
-        await persistInfrastructureFailure(job.id, result.error.message);
+        await persistInfrastructureFailure(
+          () =>
+            markInfrastructureFailure(database, job.id, result.error.message),
+          {
+            isStopping: () => stopping,
+            onRetry: (error) =>
+              logger.error("failed to persist benchmark failure; retrying", {
+                submissionId: job.id,
+                error: error.message,
+              }),
+          },
+        );
         continue;
       }
       await persistResult(job, result.value.public, result.value.private);
@@ -142,34 +193,47 @@ export function createBenchmarkWorkerService(
     }
   }
 
-  async function validateEnvironment(connection: PoolConnection) {
-    await connection.beginTransaction();
-    try {
-      const [rows] = await connection.query<
-        (RowDataPacket & { benchmark_environment_id: string | null })[]
-      >(
-        "SELECT benchmark_environment_id FROM contest_state WHERE singleton_id = 1 FOR UPDATE",
-      );
-      const existing = rows[0]?.benchmark_environment_id;
+  function validateEnvironment() {
+    return database.transaction(async (transaction) => {
+      const [state] = await transaction
+        .select({
+          benchmark_environment_id: contestState.benchmark_environment_id,
+        })
+        .from(contestState)
+        .where(eq(contestState.singleton_id, 1))
+        .for("update");
+      const existing = state?.benchmark_environment_id;
       if (existing && existing !== config.BENCHMARK_ENVIRONMENT_ID) {
-        throw new Error(
-          `benchmark environment mismatch: database=${existing}, configured=${config.BENCHMARK_ENVIRONMENT_ID}`,
+        return err(
+          new AppError(
+            "infrastructure",
+            "benchmark_environment_mismatch",
+            `benchmark environment mismatch: database=${existing}, configured=${config.BENCHMARK_ENVIRONMENT_ID}`,
+          ),
         );
       }
-      await connection.execute(
-        "UPDATE contest_state SET benchmark_environment_id = ? WHERE singleton_id = 1",
-        [config.BENCHMARK_ENVIRONMENT_ID],
-      );
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    }
+      await transaction
+        .update(contestState)
+        .set({ benchmark_environment_id: config.BENCHMARK_ENVIRONMENT_ID })
+        .where(eq(contestState.singleton_id, 1));
+      return ok(undefined);
+    });
   }
 
   async function cleanupStaleUploads() {
-    const rows = await database.query<(RowDataPacket & { id: string })[]>(
-      "SELECT id FROM submissions WHERE status = 'uploading' AND upload_started_at < CURRENT_TIMESTAMP(6) - INTERVAL 15 MINUTE",
+    const rows = await database.result(
+      database.orm
+        .select({ id: submissions.id })
+        .from(submissions)
+        .where(
+          and(
+            eq(submissions.status, "uploading"),
+            lt(
+              submissions.upload_started_at,
+              sql`CURRENT_TIMESTAMP(6) - INTERVAL 15 MINUTE`,
+            ),
+          ),
+        ),
     );
     if (rows.isErr()) {
       logger.error("failed to find stale uploads", {
@@ -178,27 +242,43 @@ export function createBenchmarkWorkerService(
       return;
     }
     for (const row of rows.value) {
-      const deleted = await database.execute(
-        "DELETE FROM submissions WHERE id = ? AND status = 'uploading'",
-        [row.id],
+      const deleted = await database.result(
+        database.orm
+          .delete(submissions)
+          .where(
+            and(
+              eq(submissions.id, row.id),
+              eq(submissions.status, "uploading"),
+            ),
+          ),
       );
       if (deleted.isOk()) await runner.cleanup(row.id);
     }
   }
 
   function claimNext() {
-    return database.transaction(async (connection) => {
-      const [rows] = await connection.query<JobRow[]>(
-        `SELECT id, username, execution_kind, language
-           FROM submissions WHERE status = 'queued'
-          ORDER BY upload_started_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
-      );
-      const job = rows[0];
+    return database.transaction(async (transaction) => {
+      const [job] = await transaction
+        .select({
+          id: submissions.id,
+          username: submissions.username,
+          execution_kind: submissions.execution_kind,
+          language: submissions.language,
+        })
+        .from(submissions)
+        .where(eq(submissions.status, "queued"))
+        .orderBy(submissions.upload_started_at, submissions.id)
+        .limit(1)
+        .for("update", { skipLocked: true });
       if (!job) return ok(null);
-      await connection.execute(
-        "UPDATE submissions SET status = 'running', started_at = CURRENT_TIMESTAMP(6), infrastructure_error = NULL WHERE id = ?",
-        [job.id],
-      );
+      await transaction
+        .update(submissions)
+        .set({
+          status: "running",
+          started_at: sql`CURRENT_TIMESTAMP(6)`,
+          infrastructure_error: null,
+        })
+        .where(eq(submissions.id, job.id));
       return ok(job);
     });
   }
@@ -208,59 +288,40 @@ export function createBenchmarkWorkerService(
     publicResult: BenchmarkResult,
     privateResult: BenchmarkResult | null,
   ) {
-    return database.transaction(async (connection) => {
-      await connection.execute(
-        "DELETE FROM benchmark_runs WHERE submission_id = ?",
-        [job.id],
-      );
-      await insertRuns(connection, job.id, "public", publicResult);
+    return database.transaction(async (transaction) => {
+      await transaction
+        .delete(benchmarkRuns)
+        .where(eq(benchmarkRuns.submission_id, job.id));
+      await insertRuns(transaction, job.id, "public", publicResult);
       if (privateResult) {
-        await insertRuns(connection, job.id, "private", privateResult);
+        await insertRuns(transaction, job.id, "private", privateResult);
       }
-      await connection.execute(
-        `UPDATE submissions
-            SET status = 'completed', public_verdict = ?, public_score_ns = ?,
-                public_error = ?, private_verdict = ?, private_score_ns = ?, completed_at = CURRENT_TIMESTAMP(6)
-          WHERE id = ?`,
-        [
-          publicResult.verdict,
-          publicResult.medianNs,
-          publicResult.error,
-          privateResult?.verdict ?? null,
-          privateResult?.medianNs ?? null,
-          job.id,
-        ],
-      );
+      await transaction
+        .update(submissions)
+        .set({
+          status: "completed",
+          public_verdict: publicResult.verdict,
+          public_score_ns: publicResult.medianNs,
+          public_error: publicResult.error,
+          private_verdict: privateResult?.verdict ?? null,
+          private_score_ns: privateResult?.medianNs ?? null,
+          completed_at: sql`CURRENT_TIMESTAMP(6)`,
+        })
+        .where(eq(submissions.id, job.id));
       if (publicResult.verdict === "accepted") {
-        await connection.execute(
-          `UPDATE users u
-            JOIN submissions candidate ON candidate.id = ?
+        await transaction.execute(sql`
+          UPDATE users u
+            JOIN submissions candidate ON candidate.id = ${job.id}
             LEFT JOIN submissions current ON current.id = u.representative_submission_id
              SET u.representative_submission_id = candidate.id
-           WHERE u.username = ?
+           WHERE u.username = ${job.username}
              AND (current.id IS NULL
                OR current.upload_started_at < candidate.upload_started_at
-               OR (current.upload_started_at = candidate.upload_started_at AND current.id < candidate.id))`,
-          [job.id, job.username],
-        );
+               OR (current.upload_started_at = candidate.upload_started_at AND current.id < candidate.id))
+        `);
       }
       return ok(undefined);
     });
-  }
-
-  async function persistInfrastructureFailure(id: string, message: string) {
-    while (!stopping) {
-      const result = await database.execute(
-        "UPDATE submissions SET status = 'infrastructure_error', infrastructure_error = ? WHERE id = ? AND status = 'running'",
-        [message.slice(0, 8192), id],
-      );
-      if (result.isOk()) return;
-      logger.error("failed to persist benchmark failure; retrying", {
-        submissionId: id,
-        error: result.error.message,
-      });
-      await delay(2_000);
-    }
   }
 
   async function persistResult(
@@ -280,25 +341,56 @@ export function createBenchmarkWorkerService(
   }
 }
 
+export async function persistInfrastructureFailure(
+  markFailure: () => ResultAsync<unknown, AppError>,
+  options: {
+    isStopping: () => boolean;
+    onRetry: (error: AppError) => void;
+    wait?: () => Promise<void>;
+  },
+) {
+  const wait = options.wait ?? (() => delay(2_000));
+  while (!options.isStopping()) {
+    const result = await markFailure();
+    if (result.isOk()) return true;
+    options.onRetry(result.error);
+    await wait();
+  }
+  return false;
+}
+
+function markInfrastructureFailure(
+  database: Pick<Database, "orm" | "result">,
+  id: string,
+  message: string,
+) {
+  return database.result(
+    database.orm
+      .update(submissions)
+      .set({
+        status: "infrastructure_error",
+        infrastructure_error: message.slice(0, 8192),
+      })
+      .where(and(eq(submissions.id, id), eq(submissions.status, "running"))),
+  );
+}
+
 async function insertRuns(
-  connection: PoolConnection,
+  transaction: Orm,
   submissionId: string,
   dataset: "public" | "private",
   result: BenchmarkResult,
 ) {
-  if (result.durationsNs) {
-    for (const [index, duration] of result.durationsNs.entries()) {
-      await connection.execute(
-        "INSERT INTO benchmark_runs (submission_id, dataset_kind, attempt, verdict, duration_ns) VALUES (?, ?, ?, ?, ?)",
-        [submissionId, dataset, index + 1, result.verdict, duration],
-      );
-    }
-  } else {
-    await connection.execute(
-      "INSERT INTO benchmark_runs (submission_id, dataset_kind, attempt, verdict, duration_ns) VALUES (?, ?, 1, ?, NULL)",
-      [submissionId, dataset, result.verdict],
-    );
-  }
+  const durations: readonly (string | null)[] = result.durationsNs ?? [null];
+  await transaction.insert(benchmarkRuns).values(
+    durations.map((duration, index) => ({
+      submission_id: submissionId,
+      dataset_kind: dataset,
+      attempt: index + 1,
+      verdict: result.verdict,
+      duration_ns: duration,
+    })),
+  );
 }
 
 function delay(milliseconds: number) {

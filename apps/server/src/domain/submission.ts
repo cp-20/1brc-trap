@@ -1,39 +1,31 @@
-import type {
-  ExecutionKind,
-  Language,
-  SubmissionStatus,
-  Verdict,
-} from "@1brc/domain";
+import type { submissions } from "../infrastructures/schema.js";
 
-export type SubmissionRecord = {
-  id: string;
-  username: string;
-  execution_kind: ExecutionKind | null;
-  language: Language | null;
-  source_filename: string | null;
-  artifact_sha256: string | null;
-  status: SubmissionStatus;
-  public_verdict: Verdict | null;
-  public_score_ns: string | null;
-  private_verdict: Verdict | null;
-  private_score_ns: string | null;
-  public_error: string | null;
-  infrastructure_error: string | null;
-  disqualified_reason: string | null;
-  upload_started_at: Date;
-  queued_at: Date | null;
-  started_at: Date | null;
-  completed_at: Date | null;
-  created_at: Date;
+type Submission = typeof submissions.$inferSelect;
+
+export type SubmissionRecord = Pick<
+  Submission,
+  | "id"
+  | "username"
+  | "execution_kind"
+  | "language"
+  | "source_filename"
+  | "artifact_sha256"
+  | "status"
+  | "public_verdict"
+  | "public_score_ns"
+  | "private_verdict"
+  | "private_score_ns"
+  | "public_error"
+  | "infrastructure_error"
+  | "disqualified_reason"
+  | "upload_started_at"
+  | "queued_at"
+  | "started_at"
+  | "completed_at"
+  | "created_at"
+> & {
   queue_ahead?: number | null;
   submission_number?: number | null;
-};
-
-export type SourceRecord = {
-  username: string;
-  representative_submission_id: string | null;
-  filename: string;
-  content: Uint8Array;
 };
 
 export function serializeSubmission(

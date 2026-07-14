@@ -1,27 +1,13 @@
-import type { RowDataPacket } from "mysql2/promise";
+import type { Language } from "@1brc/domain";
+import { and, asc, count, countDistinct, eq, ne } from "drizzle-orm";
 import type { LeaderboardRecord } from "../domain/leaderboard.js";
 import type { Database } from "../infrastructures/database.js";
-
-export type ContestStateRow = RowDataPacket & {
-  private_published_at: Date | null;
-  worker_heartbeat_at: Date | null;
-  benchmark_environment_id: string | null;
-};
-
-export type DatasetRow = RowDataPacket & {
-  contest_id: string;
-  artifact_id: string;
-  kind: "input" | "expected";
-  label: string;
-  object_key: string;
-  rows_count: string;
-  compressed_bytes: string;
-  uncompressed_bytes: string;
-  compressed_sha256: string;
-  uncompressed_sha256: string;
-};
-
-type LeaderboardRow = RowDataPacket & LeaderboardRecord;
+import {
+  contestState,
+  datasetReleases,
+  submissions,
+  users,
+} from "../infrastructures/schema.js";
 
 export type ContestRepository = ReturnType<typeof createContestRepository>;
 
@@ -29,67 +15,120 @@ export function createContestRepository(database: Database) {
   return {
     state() {
       return database
-        .query<ContestStateRow[]>(
-          "SELECT * FROM contest_state WHERE singleton_id = 1",
+        .result(
+          database.orm
+            .select()
+            .from(contestState)
+            .where(eq(contestState.singleton_id, 1)),
         )
         .map((rows) => rows[0] ?? null);
     },
     privatePublished() {
       return database
-        .query<ContestStateRow[]>(
-          "SELECT private_published_at FROM contest_state WHERE singleton_id = 1",
+        .result(
+          database.orm
+            .select({
+              private_published_at: contestState.private_published_at,
+            })
+            .from(contestState)
+            .where(eq(contestState.singleton_id, 1)),
         )
         .map((rows) => Boolean(rows[0]?.private_published_at));
     },
     participationStats() {
       return database
-        .query<
-          (RowDataPacket & {
-            participant_count: number;
-            submission_count: number;
-          })[]
-        >(
-          `SELECT COUNT(DISTINCT username) AS participant_count,
-                COUNT(*) AS submission_count
-           FROM submissions
-          WHERE status <> 'rejected'`,
+        .result(
+          database.orm
+            .select({
+              participant_count: countDistinct(submissions.username),
+              submission_count: count(),
+            })
+            .from(submissions)
+            .where(ne(submissions.status, "rejected")),
         )
         .map((rows) => ({
           participants: Number(rows[0]?.participant_count ?? 0),
           totalSubmissions: Number(rows[0]?.submission_count ?? 0),
         }));
     },
-    leaderboard(language?: string) {
-      return database.query<LeaderboardRow[]>(
-        `SELECT u.username, s.id AS submission_id, s.language,
-                s.public_verdict, s.public_score_ns, s.private_verdict, s.private_score_ns,
-                s.disqualified_reason, s.upload_started_at AS submitted_at
-           FROM users u
-           JOIN submissions s ON s.id = u.representative_submission_id
-          WHERE s.public_verdict = 'accepted'
-            AND (? IS NULL OR s.language = ?)
-          ORDER BY s.upload_started_at ASC`,
-        [language ?? null, language ?? null],
-      );
+    leaderboard(language?: Language) {
+      return database
+        .result(
+          database.orm
+            .select({
+              username: users.username,
+              submission_id: submissions.id,
+              language: submissions.language,
+              public_verdict: submissions.public_verdict,
+              public_score_ns: submissions.public_score_ns,
+              private_verdict: submissions.private_verdict,
+              private_score_ns: submissions.private_score_ns,
+              disqualified_reason: submissions.disqualified_reason,
+              submitted_at: submissions.upload_started_at,
+            })
+            .from(users)
+            .innerJoin(
+              submissions,
+              eq(submissions.id, users.representative_submission_id),
+            )
+            .where(
+              and(
+                eq(submissions.public_verdict, "accepted"),
+                language ? eq(submissions.language, language) : undefined,
+              ),
+            )
+            .orderBy(asc(submissions.upload_started_at)),
+        )
+        .map((rows) =>
+          rows.filter(
+            (row): row is LeaderboardRecord =>
+              row.language !== null && row.public_verdict !== null,
+          ),
+        );
     },
     publicDatasets(contestId: string) {
-      return database.query<DatasetRow[]>(
-        `SELECT contest_id, artifact_id, kind, label, object_key, rows_count, compressed_bytes,
-                uncompressed_bytes, compressed_sha256, uncompressed_sha256
-           FROM dataset_releases WHERE contest_id = ? AND is_public = TRUE ORDER BY rows_count, kind`,
-        [contestId],
+      return database.result(
+        database.orm
+          .select(datasetSelection)
+          .from(datasetReleases)
+          .where(
+            and(
+              eq(datasetReleases.contest_id, contestId),
+              eq(datasetReleases.is_public, true),
+            ),
+          )
+          .orderBy(datasetReleases.rows_count, datasetReleases.kind),
       );
     },
     publicDataset(contestId: string, artifactId: string) {
       return database
-        .query<DatasetRow[]>(
-          `SELECT contest_id, artifact_id, kind, label, object_key, rows_count, compressed_bytes,
-                uncompressed_bytes, compressed_sha256, uncompressed_sha256
-           FROM dataset_releases
-          WHERE contest_id = ? AND artifact_id = ? AND is_public = TRUE LIMIT 1`,
-          [contestId, artifactId],
+        .result(
+          database.orm
+            .select(datasetSelection)
+            .from(datasetReleases)
+            .where(
+              and(
+                eq(datasetReleases.contest_id, contestId),
+                eq(datasetReleases.artifact_id, artifactId),
+                eq(datasetReleases.is_public, true),
+              ),
+            )
+            .limit(1),
         )
         .map((rows) => rows[0] ?? null);
     },
   };
 }
+
+const datasetSelection = {
+  contest_id: datasetReleases.contest_id,
+  artifact_id: datasetReleases.artifact_id,
+  kind: datasetReleases.kind,
+  label: datasetReleases.label,
+  object_key: datasetReleases.object_key,
+  rows_count: datasetReleases.rows_count,
+  compressed_bytes: datasetReleases.compressed_bytes,
+  uncompressed_bytes: datasetReleases.uncompressed_bytes,
+  compressed_sha256: datasetReleases.compressed_sha256,
+  uncompressed_sha256: datasetReleases.uncompressed_sha256,
+};

@@ -1,15 +1,17 @@
 import type { LeaderboardEntry } from "@1brc/domain";
+import type { submissions, users } from "../infrastructures/schema.js";
 
+type Submission = typeof submissions.$inferSelect;
 export type LeaderboardRecord = {
-  username: string;
-  submission_id: string;
-  language: LeaderboardEntry["language"];
-  public_verdict: LeaderboardEntry["verdict"];
-  public_score_ns: string | null;
-  private_verdict: LeaderboardEntry["verdict"] | null;
-  private_score_ns: string | null;
-  disqualified_reason: string | null;
-  submitted_at: Date;
+  username: typeof users.$inferSelect.username;
+  submission_id: Submission["id"];
+  language: NonNullable<Submission["language"]>;
+  public_verdict: NonNullable<Submission["public_verdict"]>;
+  public_score_ns: Submission["public_score_ns"];
+  private_verdict: Submission["private_verdict"];
+  private_score_ns: Submission["private_score_ns"];
+  disqualified_reason: Submission["disqualified_reason"];
+  submitted_at: Submission["upload_started_at"];
 };
 
 export function buildLeaderboard(

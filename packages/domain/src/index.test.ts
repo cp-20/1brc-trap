@@ -60,11 +60,64 @@ describe("dataset manifest", () => {
     expect(datasetManifestSchema.safeParse(manifest).success).toBe(true);
   });
 
-  it("kindとID、scopeとobject key、input/expectedの組を検証する", () => {
+  it("artifact IDの末尾をkindと一致させる", () => {
     const invalid = structuredClone(manifest);
-    invalid.artifacts[0]!.id = "public-small-expected";
+    invalid.artifacts[0]!.id = "public-small-data";
+    expect(issues(invalid)).toContain("artifact id must end with -input");
+  });
+
+  it("public/privateの区分とobject keyのscopeを一致させる", () => {
+    const invalid = structuredClone(manifest);
     invalid.artifacts[0]!.objectKey =
       "datasets/contest/private/public-small-input.zst";
+    expect(issues(invalid)).toContain(
+      "object key must be under the public dataset prefix",
+    );
+  });
+
+  it("DBとR2で同じkeyを指すようobject keyをASCIIに限定する", () => {
+    const invalid = structuredClone(manifest);
+    invalid.artifacts[0]!.objectKey = "datasets/contest/public/入力-input.zst";
     expect(datasetManifestSchema.safeParse(invalid).success).toBe(false);
   });
+
+  it("同じscopeと行数にinputとexpectedの両方を要求する", () => {
+    const invalid = structuredClone(manifest);
+    invalid.artifacts[1] = artifact("public-small-copy-input", "input", true);
+    expect(issues(invalid)).toContain(
+      "public:100 must contain both input and expected artifacts",
+    );
+  });
+
+  it("公開計測と非公開計測のdatasetをどちらも要求する", () => {
+    const invalid = structuredClone(manifest);
+    for (const artifact of invalid.artifacts.filter(
+      (candidate) => !candidate.isPublic,
+    )) {
+      artifact.isPublic = true;
+      artifact.objectKey = artifact.objectKey.replace("/private/", "/public/");
+    }
+    expect(issues(invalid)).toContain(
+      "at least one private dataset is required",
+    );
+  });
+
+  it("artifact IDとobject keyの重複を拒否する", () => {
+    const invalid = structuredClone(manifest);
+    invalid.artifacts[1]!.id = invalid.artifacts[0]!.id;
+    invalid.artifacts[1]!.objectKey = invalid.artifacts[0]!.objectKey;
+    expect(issues(invalid)).toEqual(
+      expect.arrayContaining([
+        "artifact id must be unique",
+        "object key must be unique",
+      ]),
+    );
+  });
+
+  function issues(value: unknown) {
+    const result = datasetManifestSchema.safeParse(value);
+    return result.success
+      ? []
+      : result.error.issues.map((issue) => issue.message);
+  }
 });

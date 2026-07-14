@@ -11,8 +11,8 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import {
   benchmarkPolicy,
   executionKindSchema,
@@ -24,6 +24,8 @@ import {
 } from "@1brc/domain";
 import { z } from "zod";
 import { compareOutput } from "./compare.js";
+import { buildContainerCreateArgs } from "./container-command.js";
+import { runWithFileLock } from "./run-lock.js";
 
 const config = z
   .object({
@@ -136,27 +138,13 @@ async function run(args: string[]) {
 
 async function runUnderLock() {
   await mkdir(config.RUNNER_ROOT, { recursive: true });
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn(
-      "flock",
-      [
-        "--nonblock",
-        "--conflict-exit-code",
-        "75",
-        join(config.RUNNER_ROOT, "run.lock"),
-        process.execPath,
-        fileURLToPath(import.meta.url),
-        ...process.argv.slice(2),
-      ],
-      {
-        stdio: "inherit",
-        env: { ...process.env, ONEBRC_RUN_LOCKED: "1" },
-      },
-    );
-    child.once("error", reject);
-    child.once("close", (code) => resolve(code ?? 1));
-  });
-  if (exitCode === 75) throw new Error("runner is busy");
+  const exitCode = await runWithFileLock(
+    join(config.RUNNER_ROOT, "run.lock"),
+    process.execPath,
+    [fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    { ...process.env, ONEBRC_RUN_LOCKED: "1" },
+  );
+  if (exitCode === "busy") throw new Error("runner is busy");
   if (exitCode !== 0) process.exitCode = exitCode;
 }
 
@@ -252,38 +240,15 @@ async function runAttempt(
   await mkdir(workDirectory, { recursive: true, mode: 0o777 });
   await chmod(workDirectory, 0o1777);
   const output = join(workDirectory, "output.txt");
-  const createArgs = [
-    "create",
-    "--name",
+  const createArgs = buildContainerCreateArgs({
     container,
-    "--network",
-    "none",
-    "--read-only",
-    "--user",
-    "65534:65534",
-    "--cap-drop",
-    "ALL",
-    "--security-opt",
-    "no-new-privileges=true",
-    "--pids-limit",
-    String(benchmarkPolicy.pidLimit),
-    "--mount",
-    `type=bind,src=${workDirectory},dst=/work`,
-    "--mount",
-    `type=bind,src=${artifact},dst=${containerArtifact},readonly`,
-    "--mount",
-    `type=bind,src=${input},dst=/input/data.csv,readonly`,
-    config.RUNNER_IMAGE,
-    "/opt/bun/bin/bun",
-    "/opt/1brc/measure.mjs",
-    kind,
+    workDirectory,
+    artifact,
     containerArtifact,
-    "/input/data.csv",
-    "/work/output.txt",
-    String(benchmarkPolicy.timeoutSeconds),
-    String(benchmarkPolicy.stdioLimitBytes),
-    String(benchmarkPolicy.outputLimitBytes),
-  ];
+    input,
+    image: config.RUNNER_IMAGE,
+    kind,
+  });
   await execute("docker", createArgs, 60_000);
   try {
     const raw = await execute(

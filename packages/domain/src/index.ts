@@ -112,7 +112,11 @@ const datasetArtifactSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
   kind: z.enum(["input", "expected"]),
   label: z.string().min(1).max(128),
-  objectKey: z.string().startsWith("datasets/").max(1024),
+  objectKey: z
+    .string()
+    .startsWith("datasets/")
+    .max(1024)
+    .regex(/^[\x20-\x7e]+$/),
   rows: z.number().int().positive(),
   compressedBytes: z.number().int().positive(),
   uncompressedBytes: z.number().int().positive(),
