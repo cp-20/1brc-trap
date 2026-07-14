@@ -3,7 +3,7 @@
   "context": {
     "instanceType": "r7i.2xlarge",
     "allowedSshCidr": "0.0.0.0/0",
-    "benchmarkEnvironmentId": "r7i-2xlarge-ubuntu26-v1",
+    "benchmarkEnvironmentId": "r7i-2xlarge-ubuntu26-v2",
     "volumeSizeGiB": 200
   }
 }

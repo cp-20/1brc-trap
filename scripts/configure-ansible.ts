@@ -22,7 +22,7 @@ const { values } = parseArgs({
     },
     "runner-image": {
       type: "string",
-      default: "onebrc-runner:ubuntu26-v1",
+      default: "onebrc-runner:ubuntu26-v2",
     },
   },
   strict: true,

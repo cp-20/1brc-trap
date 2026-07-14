@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <immintrin.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,16 +17,17 @@
 #define YEAR_START 1798761600u
 
 typedef struct {
-  uint64_t messages, total_len, stamps;
-  uint32_t min_len, max_len;
+  uint64_t total_len, stamps;
+  uint32_t messages;
+  uint16_t min_len, max_len;
 } Stats;
 typedef struct {
   Stats month[12];
 } ChannelAgg;
 typedef struct {
   const char *key;
-  uint64_t hash;
-  uint32_t len, id;
+  uint32_t len;
+  uint16_t id, tag;
 } MapEntry;
 typedef struct {
   MapEntry *entries;
@@ -61,30 +63,21 @@ static uint64_t load64(const char *p) {
   memcpy(&x, p, 8);
   return x;
 }
-static uint64_t rotl(uint64_t x, unsigned n) {
-  return (x << n) | (x >> (64 - n));
-}
-static uint64_t mix64(uint64_t x) {
-  x ^= x >> 30;
-  x *= 0xbf58476d1ce4e5b9ULL;
-  x ^= x >> 27;
-  x *= 0x94d049bb133111ebULL;
-  return x ^ (x >> 31);
-}
-static uint64_t hash_bytes(const char *p, size_t n) {
-  uint64_t a = 0, b = 0, c = 0;
-  if (n >= 24) {
-    a = load64(p);
-    b = load64(p + n / 2 - 4);
-    c = load64(p + n - 8);
-  } else if (n >= 8) {
-    a = load64(p);
-    c = load64(p + n - 8);
-  } else
-    for (size_t i = 0; i < n; i++)
-      a |= (uint64_t)(uint8_t)p[i] << (8 * i);
-  return mix64(a * 0x9e3779b185ebca87ULL ^ rotl(b, 21) ^ rotl(c, 43) ^
-               (uint64_t)n * 0xd6e8feb86659fd93ULL);
+static uint32_t hash_bytes(const char *p, size_t n) {
+  uint64_t hash = n;
+  size_t i = 0;
+  for (; i + 8 <= n; i += 8) {
+    hash = _mm_crc32_u64(hash, load64(p + i));
+  }
+  if (n < 8) {
+    uint64_t x = 0;
+    for (i = 0; i < n; i++)
+      x |= (uint64_t)(uint8_t)p[i] << (8 * i);
+    hash = _mm_crc32_u64(hash, x);
+  } else if (i < n) {
+    hash = _mm_crc32_u64(hash, load64(p + n - 8));
+  }
+  return (uint32_t)hash;
 }
 static void map_init(FlatMap *m) {
   memset(m, 0, sizeof(*m));
@@ -99,8 +92,9 @@ static void map_free(FlatMap *m) {
   free(m->aggs);
 }
 static MapEntry *map_find(FlatMap *m, const char *key, uint32_t len,
-                          uint64_t hash) {
-  uint32_t i = (uint32_t)hash & (MAP_CAPACITY - 1);
+                          uint32_t hash) {
+  uint32_t i = hash & (MAP_CAPACITY - 1);
+  uint16_t tag = (uint16_t)(hash >> 16);
   for (;;) {
     MapEntry *e = &m->entries[i];
     if (!e->key) {
@@ -113,17 +107,17 @@ static MapEntry *map_find(FlatMap *m, const char *key, uint32_t len,
                (m->agg_cap - m->size) * sizeof(ChannelAgg));
       }
       e->key = key;
-      e->hash = hash;
       e->len = len;
-      e->id = m->size++;
+      e->id = (uint16_t)m->size++;
+      e->tag = tag;
       return e;
     }
-    if (e->hash == hash && e->len == len && !memcmp(e->key, key, len))
+    if (e->tag == tag && e->len == len && !memcmp(e->key, key, len))
       return e;
     i = (i + 1) & (MAP_CAPACITY - 1);
   }
 }
-static void map_add(FlatMap *m, const char *key, uint32_t len, uint64_t hash,
+static void map_add(FlatMap *m, const char *key, uint32_t len, uint32_t hash,
                     uint32_t month, uint32_t message_len, uint32_t stamps) {
   MapEntry *e = map_find(m, key, len, hash);
   Stats *s = &m->aggs[e->id].month[month];
@@ -147,7 +141,7 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
     const MapEntry *a = &src->entries[i];
     if (!a->key)
       continue;
-    MapEntry *b = map_find(dst, a->key, a->len, a->hash);
+    MapEntry *b = map_find(dst, a->key, a->len, hash_bytes(a->key, a->len));
     for (unsigned j = 0; j < 12; j++) {
       const Stats *x = &src->aggs[a->id].month[j];
       Stats *y = &dst->aggs[b->id].month[j];
@@ -168,10 +162,28 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
   }
 }
 static uint32_t timestamp10(const char *p) {
-  uint32_t x = (uint8_t)(p[0] - '0');
-  for (unsigned i = 1; i < 10; i++)
-    x = x * 10 + (uint8_t)(p[i] - '0');
-  return x;
+  uint64_t x = load64(p) & 0x0f0f0f0f0f0f0f0fULL;
+  x = (x & 0x000f000f000f000fULL) * 10 +
+      ((x >> 8) & 0x000f000f000f000fULL);
+  x = (x & 0x000000ff000000ffULL) * 100 +
+      ((x >> 16) & 0x000000ff000000ffULL);
+  uint32_t first8 = (uint32_t)x * 10000 + (uint32_t)(x >> 32);
+  return first8 * 100 + (uint8_t)(p[8] - '0') * 10 +
+         (uint8_t)(p[9] - '0');
+}
+static uint32_t channel_length(const char *p, const char *end) {
+  const __m256i comma = _mm256_set1_epi8(',');
+  uint32_t offset = 0;
+  while (p + offset + 32 <= end) {
+    uint32_t mask = (uint32_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(
+        _mm256_loadu_si256((const __m256i *)(p + offset)), comma));
+    if (mask)
+      return offset + (uint32_t)__builtin_ctz(mask);
+    offset += 32;
+  }
+  while (p + offset < end && p[offset] != ',')
+    offset++;
+  return offset;
 }
 static void *analyze_worker(void *arg) {
   Worker *w = arg;
@@ -187,22 +199,18 @@ static void *analyze_worker(void *arg) {
              month = month_by_day[(ts - YEAR_START) / 86400u];
     p += 11;
     const char *key = p;
-    while (*p != ',')
-      p++;
-    uint32_t len = (uint32_t)(p - key);
-    uint64_t hash = hash_bytes(key, len);
+    uint32_t len = channel_length(key, w->end);
+    p += len;
+    uint32_t hash = hash_bytes(key, len);
     p++;
-    uint32_t ml = 0;
+    uint32_t ml = (uint8_t)(*p++ - '0');
     while (*p != ',')
       ml = ml * 10 + (uint8_t)(*p++ - '0');
     p++;
-    uint32_t stamps = 0;
-    while (p < w->end && (uint8_t)(*p - '0') <= 9)
+    uint32_t stamps = (uint8_t)(*p++ - '0');
+    while (*p != '\n')
       stamps = stamps * 10 + (uint8_t)(*p++ - '0');
-    while (p < w->end && *p != '\n')
-      p++;
-    if (p < w->end)
-      p++;
+    p++;
     map_add(&w->map, key, len, hash, month, ml, stamps);
   }
   w->elapsed = now() - t;
@@ -234,11 +242,11 @@ static void write_result(FILE *out, const FlatMap *m) {
       if (!s->messages)
         continue;
       char tail[128];
-      int z =
-          snprintf(tail, sizeof(tail),
-                   ",%s=%u/%.2f/%u/%" PRIu64 "/%" PRIu64 "\n", month_label[j],
-                   s->min_len, (double)s->total_len / (double)s->messages,
-                   s->max_len, s->messages, s->stamps);
+      int z = snprintf(tail, sizeof(tail),
+                       ",%s=%u/%.2f/%u/%" PRIu64 "/%" PRIu64 "\n",
+                       month_label[j], s->min_len,
+                       (double)s->total_len / (double)s->messages, s->max_len,
+                       (uint64_t)s->messages, s->stamps);
       if (used + e->len + (size_t)z > (4u << 20)) {
         fwrite(buf, 1, used, out);
         used = 0;

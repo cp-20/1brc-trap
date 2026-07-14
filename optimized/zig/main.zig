@@ -6,9 +6,9 @@ const year_start: u32 = 1798761600;
 const month_start = [_]u32{ 1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000, 1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600 };
 const month_label = [_][]const u8{ "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12" };
 
-const Stats = struct { messages: u64 = 0, total_len: u64 = 0, stamps: u64 = 0, min_len: u32 = 0, max_len: u32 = 0 };
+const Stats = struct { total_len: u64 = 0, stamps: u64 = 0, messages: u32 = 0, min_len: u16 = 0, max_len: u16 = 0 };
 const Agg = struct { month: [12]Stats = [_]Stats{.{}} ** 12 };
-const Entry = struct { pos: usize = 0, hash: u64 = 0, len: u32 = 0, id: u32 = 0 };
+const Entry = struct { pos: usize = 0, len: u32 = 0, id: u16 = 0, tag: u16 = 0 };
 const FlatMap = struct {
     entries: []Entry,
     aggs: []Agg,
@@ -25,33 +25,34 @@ const FlatMap = struct {
         self.allocator.free(self.entries);
         self.allocator.free(self.aggs);
     }
-    fn find(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u64) *Entry {
+    fn find(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u32) *Entry {
         var i: usize = @as(usize, @intCast(hash)) & (cap - 1);
+        const tag: u16 = @intCast(hash >> 16);
         while (true) : (i = (i + 1) & (cap - 1)) {
             const e = &self.entries[i];
             if (e.len == 0) {
-                e.* = .{ .pos = key_pos, .hash = hash, .len = len, .id = @intCast(self.size) };
+                e.* = .{ .pos = key_pos, .len = len, .id = @intCast(self.size), .tag = tag };
                 self.size += 1;
                 return e;
             }
-            if (e.hash == hash and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
+            if (e.tag == tag and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
         }
     }
-    fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u64, month: usize, ml: u32, stamps: u32) void {
+    fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u32, month: usize, ml: u32, stamps: u32) void {
         const e = self.find(data, key_pos, len, hash);
         const s = &self.aggs[e.id].month[month];
-        if (s.messages == 0) s.* = .{ .messages = 1, .total_len = ml, .stamps = stamps, .min_len = ml, .max_len = ml } else {
+        if (s.messages == 0) s.* = .{ .messages = 1, .total_len = ml, .stamps = stamps, .min_len = @intCast(ml), .max_len = @intCast(ml) } else {
             s.messages += 1;
             s.total_len += ml;
             s.stamps += stamps;
-            s.min_len = @min(s.min_len, ml);
-            s.max_len = @max(s.max_len, ml);
+            s.min_len = @min(s.min_len, @as(u16, @intCast(ml)));
+            s.max_len = @max(s.max_len, @as(u16, @intCast(ml)));
         }
     }
     fn merge(self: *FlatMap, data: []const u8, other: *const FlatMap) void {
         for (other.entries) |src| {
             if (src.len == 0) continue;
-            const e = self.find(data, src.pos, src.len, src.hash);
+            const e = self.find(data, src.pos, src.len, hashBytes(data[src.pos..][0..src.len]));
             for (0..12) |m| {
                 const a = other.aggs[src.id].month[m];
                 if (a.messages == 0) continue;
@@ -86,7 +87,7 @@ inline fn mix64(v: u64) u64 {
     x *%= 0x94d049bb133111eb;
     return x ^ (x >> 31);
 }
-inline fn hashBytes(p: []const u8) u64 {
+inline fn hashBytes(p: []const u8) u32 {
     const n = p.len;
     var a: u64 = 0;
     var b: u64 = 0;
@@ -99,12 +100,14 @@ inline fn hashBytes(p: []const u8) u64 {
         a = load64(p);
         c = load64(p[n - 8 ..]);
     } else for (p, 0..) |x, i| a |= @as(u64, x) << @intCast(8 * i);
-    return mix64(a *% 0x9e3779b185ebca87 ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43) ^ @as(u64, n) *% 0xd6e8feb86659fd93);
+    return @truncate(mix64(a *% 0x9e3779b185ebca87 ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43) ^ @as(u64, n) *% 0xd6e8feb86659fd93));
 }
 inline fn timestamp(p: []const u8) u32 {
-    var x: u32 = p[0] - '0';
-    inline for (1..10) |i| x = x * 10 + p[i] - '0';
-    return x;
+    var x = load64(p) & 0x0f0f0f0f0f0f0f0f;
+    x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
+    x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
+    const first8: u32 = @as(u32, @truncate(x)) * 10000 + @as(u32, @truncate(x >> 32));
+    return first8 * 100 + @as(u32, p[8] - '0') * 10 + p[9] - '0';
 }
 fn monthTable() [365]u8 {
     var a: [365]u8 = undefined;
@@ -131,17 +134,18 @@ fn analyzeWorker(w: *Worker) void {
         const month = w.months.*[(ts - year_start) / 86400];
         p += 11;
         const key = p;
-        while (w.data[p] != ',') p += 1;
+        p += std.mem.indexOfScalar(u8, w.data[p..w.end], ',').?;
         const len: u32 = @intCast(p - key);
         const hash = hashBytes(w.data[key..p]);
         p += 1;
-        var ml: u32 = 0;
+        var ml: u32 = w.data[p] - '0';
+        p += 1;
         while (w.data[p] != ',') : (p += 1) ml = ml * 10 + w.data[p] - '0';
         p += 1;
-        var stamps: u32 = 0;
-        while (p < w.end and w.data[p] -% '0' <= 9) : (p += 1) stamps = stamps * 10 + w.data[p] - '0';
-        while (p < w.end and w.data[p] != '\n') p += 1;
-        if (p < w.end) p += 1;
+        var stamps: u32 = w.data[p] - '0';
+        p += 1;
+        while (w.data[p] != '\n') : (p += 1) stamps = stamps * 10 + w.data[p] - '0';
+        p += 1;
         map.add(w.data, key, len, hash, month, ml, stamps);
     }
     w.map = map;

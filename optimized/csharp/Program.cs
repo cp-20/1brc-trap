@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.MemoryMappedFiles;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 unsafe class Program
 {
@@ -11,34 +14,35 @@ unsafe class Program
     static readonly string[] MonthLabel = ["2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"];
     static readonly byte[] MonthByDay = MakeMonths();
 
-    struct Stats { public ulong Messages, TotalLen, Stamps; public uint MinLen, MaxLen; }
-    struct Entry { public long Pos; public ulong Hash; public int Len, Id; }
+    struct Stats { public ulong TotalLen, Stamps; public uint Messages; public ushort MinLen, MaxLen; }
+    struct Entry { public long Pos; public int Len; public ushort Id, Tag; }
     sealed class FlatMap
     {
         public readonly Entry[] Entries = new Entry[Capacity];
         public readonly Stats[] Aggs = new Stats[(Capacity / 2) * 12];
         public int Size;
-        int Find(nint data, long pos, int len, ulong hash)
+        int Find(nint data, long pos, int len, uint hash)
         {
             int i = (int)hash & (Capacity - 1);
+            ushort tag = (ushort)(hash >> 16);
             for (; ; i = (i + 1) & (Capacity - 1))
             {
                 ref Entry e = ref Entries[i];
-                if (e.Len == 0) { e = new Entry { Pos = pos, Hash = hash, Len = len, Id = Size++ }; return i; }
-                if (e.Hash == hash && e.Len == len && Equal((byte*)data + e.Pos, (byte*)data + pos, len)) return i;
+                if (e.Len == 0) { e = new Entry { Pos = pos, Len = len, Id = (ushort)Size++, Tag = tag }; return i; }
+                if (e.Tag == tag && e.Len == len && Equal((byte*)data + e.Pos, (byte*)data + pos, len)) return i;
             }
         }
-        public void Add(nint data, long pos, int len, ulong hash, int month, uint ml, uint stamps)
+        public void Add(nint data, long pos, int len, uint hash, int month, uint ml, uint stamps)
         {
             int slot = Find(data, pos, len, hash); ref Stats s = ref Aggs[Entries[slot].Id * 12 + month];
-            if (s.Messages == 0) s = new Stats { Messages = 1, TotalLen = ml, Stamps = stamps, MinLen = ml, MaxLen = ml };
-            else { s.Messages++; s.TotalLen += ml; s.Stamps += stamps; if (ml < s.MinLen) s.MinLen = ml; if (ml > s.MaxLen) s.MaxLen = ml; }
+            if (s.Messages == 0) s = new Stats { Messages = 1, TotalLen = ml, Stamps = stamps, MinLen = (ushort)ml, MaxLen = (ushort)ml };
+            else { s.Messages++; s.TotalLen += ml; s.Stamps += stamps; if (ml < s.MinLen) s.MinLen = (ushort)ml; if (ml > s.MaxLen) s.MaxLen = (ushort)ml; }
         }
         public void Merge(nint data, FlatMap other)
         {
             foreach (ref readonly Entry a in other.Entries.AsSpan())
             {
-                if (a.Len == 0) continue; int slot = Find(data, a.Pos, a.Len, a.Hash); int di = Entries[slot].Id * 12, si = a.Id * 12;
+                if (a.Len == 0) continue; int slot = Find(data, a.Pos, a.Len, Hash((byte*)data + a.Pos, a.Len)); int di = Entries[slot].Id * 12, si = a.Id * 12;
                 for (int m = 0; m < 12; m++) { Stats x = other.Aggs[si + m]; if (x.Messages == 0) continue; ref Stats y = ref Aggs[di + m]; if (y.Messages == 0) y = x; else { y.Messages += x.Messages; y.TotalLen += x.TotalLen; y.Stamps += x.Stamps; if (x.MinLen < y.MinLen) y.MinLen = x.MinLen; if (x.MaxLen > y.MaxLen) y.MaxLen = x.MaxLen; } }
             }
         }
@@ -48,14 +52,13 @@ unsafe class Program
     static Options Parse(string[] args) { int threads = Environment.ProcessorCount; if (args.Length == 2 && !args[0].StartsWith('-') && !args[1].StartsWith('-')) return new(args[0], args[1], threads, false); string input = "", output = ""; bool profile = false; for (int i = 0; i < args.Length; i++) { switch (args[i]) { case "-i": case "--input": input = args[++i]; break; case "-o": case "--output": output = args[++i]; break; case "-t": case "--threads": threads = int.Parse(args[++i], CultureInfo.InvariantCulture); break; case "--profile": profile = true; break; default: throw new Exception($"unknown argument: {args[i]}"); } } if (input.Length == 0 || threads < 1) throw new Exception("optimized C# analyzer requires -i and positive -t"); return new(input, output, threads, profile); }
     static byte[] MakeMonths() { byte[] a = new byte[365]; int m = 0; for (int d = 0; d < a.Length; d++) { uint ts = YearStart + (uint)d * 86400; if (ts >= MonthStart[m + 1]) m++; a[d] = (byte)m; } return a; }
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static bool Equal(byte* a, byte* b, int len) { return new ReadOnlySpan<byte>(a, len).SequenceEqual(new ReadOnlySpan<byte>(b, len)); }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static ulong Mix(ulong x) { x ^= x >> 30; x *= 0xbf58476d1ce4e5b9UL; x ^= x >> 27; x *= 0x94d049bb133111ebUL; return x ^ (x >> 31); }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static ulong RotL(ulong x, int n) => (x << n) | (x >> (64 - n));
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static ulong Hash(byte* p, int n) { ulong a = 0, b = 0, c = 0; if (n >= 24) { a = Unsafe.ReadUnaligned<ulong>(p); b = Unsafe.ReadUnaligned<ulong>(p + n / 2 - 4); c = Unsafe.ReadUnaligned<ulong>(p + n - 8); } else if (n >= 8) { a = Unsafe.ReadUnaligned<ulong>(p); c = Unsafe.ReadUnaligned<ulong>(p + n - 8); } else for (int i = 0; i < n; i++) a |= (ulong)p[i] << (8 * i); return Mix(a * 0x9e3779b185ebca87UL ^ RotL(b, 21) ^ RotL(c, 43) ^ (ulong)n * 0xd6e8feb86659fd93UL); }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static uint Timestamp(byte* p) { uint x = (uint)(p[0] - '0'); x = x * 10 + (uint)(p[1] - '0'); x = x * 10 + (uint)(p[2] - '0'); x = x * 10 + (uint)(p[3] - '0'); x = x * 10 + (uint)(p[4] - '0'); x = x * 10 + (uint)(p[5] - '0'); x = x * 10 + (uint)(p[6] - '0'); x = x * 10 + (uint)(p[7] - '0'); x = x * 10 + (uint)(p[8] - '0'); x = x * 10 + (uint)(p[9] - '0'); return x; }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static uint Hash(byte* p, int n) { ulong hash = (uint)n; int i = 0; for (; i + 8 <= n; i += 8) hash = Sse42.X64.Crc32(hash, Unsafe.ReadUnaligned<ulong>(p + i)); if (n < 8) { ulong x = 0; for (i = 0; i < n; i++) x |= (ulong)p[i] << (8 * i); hash = Sse42.X64.Crc32(hash, x); } else if (i < n) hash = Sse42.X64.Crc32(hash, Unsafe.ReadUnaligned<ulong>(p + n - 8)); return (uint)hash; }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static uint Timestamp(byte* p) { ulong x = Unsafe.ReadUnaligned<ulong>(p) & 0x0f0f0f0f0f0f0f0fUL; x = (x & 0x000f000f000f000fUL) * 10 + ((x >> 8) & 0x000f000f000f000fUL); x = (x & 0x000000ff000000ffUL) * 100 + ((x >> 16) & 0x000000ff000000ffUL); uint first8 = (uint)x * 10000 + (uint)(x >> 32); return first8 * 100 + (uint)(p[8] - '0') * 10 + (uint)(p[9] - '0'); }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static int ChannelLength(byte* p, byte* end) { Vector256<byte> comma = Vector256.Create((byte)','); int offset = 0; while (p + offset + 32 <= end) { uint mask = (uint)Avx2.MoveMask(Avx2.CompareEqual(Avx.LoadVector256(p + offset), comma)); if (mask != 0) return offset + BitOperations.TrailingZeroCount(mask); offset += 32; } while (p + offset < end && p[offset] != ',') offset++; return offset; }
     static FlatMap Analyze(nint data, long begin, long end)
     {
         var map = new FlatMap(); byte* d = (byte*)data; long p = begin;
-        while (p < end) { if (d[p] == '\n' || d[p] == '\r') { p++; continue; } uint ts = Timestamp(d + p); int month = MonthByDay[(ts - YearStart) / 86400]; p += 11; long key = p; while (d[p] != ',') p++; int len = (int)(p - key); ulong hash = Hash(d + key, len); p++; uint ml = 0; while (d[p] != ',') ml = ml * 10 + (uint)(d[p++] - '0'); p++; uint stamps = 0; while (p < end && (uint)(d[p] - '0') <= 9) stamps = stamps * 10 + (uint)(d[p++] - '0'); while (p < end && d[p] != '\n') p++; if (p < end) p++; map.Add(data, key, len, hash, month, ml, stamps); }
+        while (p < end) { if (d[p] == '\n' || d[p] == '\r') { p++; continue; } uint ts = Timestamp(d + p); int month = MonthByDay[(ts - YearStart) / 86400]; p += 11; long key = p; int len = ChannelLength(d + p, d + end); p += len; uint hash = Hash(d + key, len); p++; uint ml = (uint)(d[p++] - '0'); while (d[p] != ',') ml = ml * 10 + (uint)(d[p++] - '0'); p++; uint stamps = (uint)(d[p++] - '0'); while (d[p] != '\n') stamps = stamps * 10 + (uint)(d[p++] - '0'); p++; map.Add(data, key, len, hash, month, ml, stamps); }
         return map;
     }
     static long FindNewline(byte* data, long from, long end) { while (from < end && data[from] != '\n') from++; return from < end ? from + 1 : end; }

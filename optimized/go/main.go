@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
 	progressbar "github.com/cp-20/1blc-trap/internal/progress"
 )
@@ -26,28 +26,31 @@ const (
 )
 
 type stats struct {
-	messages uint64
 	totalLen uint64
 	stamps   uint64
-	minLen   uint32
-	maxLen   uint32
+	messages uint32
+	minLen   uint16
+	maxLen   uint16
 }
 
 type flatMap struct {
+	data    []byte
 	entries []mapEntry
 	aggs    []channelAgg
 	size    int
 }
 
 type mapEntry struct {
-	key  string
-	hash uint64
-	id   uint32
+	pos uint64
+	len uint32
+	id  uint16
+	tag uint16
 }
 
 type outputEntry struct {
-	key string
-	id  uint32
+	pos uint64
+	len uint32
+	id  uint16
 }
 
 type channelAgg struct {
@@ -234,7 +237,7 @@ func analyzeMemory(data []byte, threads int, p *profile, report func(int64)) (*f
 		p.chunks = len(chunks)
 	}
 	if len(chunks) == 0 {
-		return newFlatMap(defaultMapCap), nil
+		return newFlatMap(data, defaultMapCap), nil
 	}
 
 	locals := make([]*flatMap, len(chunks))
@@ -245,7 +248,7 @@ func analyzeMemory(data []byte, threads int, p *profile, report func(int64)) (*f
 	for i, c := range chunks {
 		go func(i int, c chunk) {
 			start := time.Now()
-			locals[i] = analyzeChunk(data[c.begin:c.end], report)
+			locals[i] = analyzeChunk(data, c.begin, c.end, report)
 			workerSeconds[i] = secondsSince(start)
 			done <- i
 		}(i, c)
@@ -261,7 +264,7 @@ func analyzeMemory(data []byte, threads int, p *profile, report func(int64)) (*f
 	}
 
 	mergeStart := time.Now()
-	merged := newFlatMap(defaultMapCap)
+	merged := newFlatMap(data, defaultMapCap)
 	for _, local := range locals {
 		merged.mergeFrom(local)
 	}
@@ -272,71 +275,58 @@ func analyzeMemory(data []byte, threads int, p *profile, report func(int64)) (*f
 	return merged, nil
 }
 
-func analyzeChunk(data []byte, report func(int64)) *flatMap {
-	m := newFlatMap(defaultMapCap)
+func analyzeChunk(data []byte, begin, end int, report func(int64)) *flatMap {
+	m := newFlatMap(data, defaultMapCap)
 	reported := 0
 	nextReport := 4 * 1024 * 1024
-	for i := 0; i < len(data); {
+	for i := begin; i < end; {
 		if data[i] == '\n' || data[i] == '\r' {
 			i++
 			continue
 		}
-		if i+10 >= len(data) {
+		if i+10 >= end {
 			break
 		}
-		timestamp := uint32(data[i] - '0')
-		timestamp = timestamp*10 + uint32(data[i+1]-'0')
-		timestamp = timestamp*10 + uint32(data[i+2]-'0')
-		timestamp = timestamp*10 + uint32(data[i+3]-'0')
-		timestamp = timestamp*10 + uint32(data[i+4]-'0')
-		timestamp = timestamp*10 + uint32(data[i+5]-'0')
-		timestamp = timestamp*10 + uint32(data[i+6]-'0')
-		timestamp = timestamp*10 + uint32(data[i+7]-'0')
-		timestamp = timestamp*10 + uint32(data[i+8]-'0')
-		timestamp = timestamp*10 + uint32(data[i+9]-'0')
+		x := binary.LittleEndian.Uint64(data[i:]) & 0x0f0f0f0f0f0f0f0f
+		x = (x&0x000f000f000f000f)*10 + ((x >> 8) & 0x000f000f000f000f)
+		x = (x&0x000000ff000000ff)*100 + ((x >> 16) & 0x000000ff000000ff)
+		first8 := uint32(x)*10000 + uint32(x>>32)
+		timestamp := first8*100 + uint32(data[i+8]-'0')*10 + uint32(data[i+9]-'0')
 		month := monthIndexFromUnixTimestamp(timestamp)
 		p := i + 11
 
 		channelBegin := p
-		for data[p] != ',' {
-			p++
-		}
-		channel := unsafe.String(&data[channelBegin], p-channelBegin)
+		p += bytes.IndexByte(data[p:end], ',')
+		channelLen := uint32(p - channelBegin)
 		channelHash := hashBytes(data[channelBegin:p])
 		p++
-		messageLength := uint32(0)
+		messageLength := uint32(data[p] - '0')
+		p++
 		for data[p] != ',' {
 			messageLength = messageLength*10 + uint32(data[p]-'0')
 			p++
 		}
 		p++
 
-		stampCount := uint32(0)
-		for p < len(data) {
-			c := data[p]
-			if c < '0' || c > '9' {
-				break
-			}
-			stampCount = stampCount*10 + uint32(c-'0')
+		stampCount := uint32(data[p] - '0')
+		p++
+		for data[p] != '\n' {
+			stampCount = stampCount*10 + uint32(data[p]-'0')
 			p++
 		}
-		for p < len(data) && data[p] != '\n' {
-			p++
-		}
-		if p < len(data) {
-			p++
-		}
+		p++
 
-		m.add(channel, channelHash, month, messageLength, stampCount)
+		m.add(uint64(channelBegin), channelLen, channelHash, month, messageLength, stampCount)
 		i = p
-		if report != nil && i >= nextReport {
-			report(int64(i - reported))
-			reported = i
-			nextReport = i + 4*1024*1024
+		processed := i - begin
+		if report != nil && processed >= nextReport {
+			report(int64(processed - reported))
+			reported = processed
+			nextReport = processed + 4*1024*1024
 		}
 	}
-	if report != nil && reported < len(data) {
-		report(int64(len(data) - reported))
+	if report != nil && reported < end-begin {
+		report(int64(end - begin - reported))
 	}
 	return m
 }
@@ -379,22 +369,23 @@ func splitChunks(data []byte, begin, end, threads int) []chunk {
 	return chunks
 }
 
-func newFlatMap(capacity int) *flatMap {
+func newFlatMap(data []byte, capacity int) *flatMap {
 	c := 1
 	for c < capacity {
 		c <<= 1
 	}
 	return &flatMap{
+		data:    data,
 		entries: make([]mapEntry, c),
 		aggs:    make([]channelAgg, 0, c/2),
 	}
 }
 
-func (m *flatMap) add(key string, hash uint64, month int, messageLength, stampCount uint32) {
+func (m *flatMap) add(pos uint64, length, hash uint32, month int, messageLength, stampCount uint32) {
 	if (m.size+1)*10 >= len(m.entries)*7 {
 		m.rehash(len(m.entries) * 2)
 	}
-	e := m.findOrInsert(key, hash)
+	e := m.findOrInsert(pos, length, hash)
 	id := e.id
 	s := &m.aggs[id].months[month]
 	if s.messages == 0 {
@@ -402,36 +393,41 @@ func (m *flatMap) add(key string, hash uint64, month int, messageLength, stampCo
 			messages: 1,
 			totalLen: uint64(messageLength),
 			stamps:   uint64(stampCount),
-			minLen:   messageLength,
-			maxLen:   messageLength,
+			minLen:   uint16(messageLength),
+			maxLen:   uint16(messageLength),
 		}
 		return
 	}
 	s.messages++
 	s.totalLen += uint64(messageLength)
 	s.stamps += uint64(stampCount)
-	if messageLength < s.minLen {
-		s.minLen = messageLength
+	if uint16(messageLength) < s.minLen {
+		s.minLen = uint16(messageLength)
 	}
-	if messageLength > s.maxLen {
-		s.maxLen = messageLength
+	if uint16(messageLength) > s.maxLen {
+		s.maxLen = uint16(messageLength)
 	}
 }
 
-func (m *flatMap) findOrInsert(key string, hash uint64) *mapEntry {
-	mask := uint64(len(m.entries) - 1)
+func (m *flatMap) findOrInsert(pos uint64, length, hash uint32) *mapEntry {
+	mask := uint32(len(m.entries) - 1)
 	index := hash & mask
+	tag := uint16(hash >> 16)
 	for {
 		e := &m.entries[index]
-		if e.key == "" {
-			e.key = key
-			e.hash = hash
-			e.id = uint32(len(m.aggs))
+		if e.len == 0 {
+			e.pos = pos
+			e.len = length
+			e.id = uint16(len(m.aggs))
+			e.tag = tag
 			m.aggs = append(m.aggs, channelAgg{})
 			m.size++
 			return e
 		}
-		if e.hash == hash && e.key == key {
+		if e.tag == tag && e.len == length && bytes.Equal(
+			m.data[e.pos:e.pos+uint64(e.len)],
+			m.data[pos:pos+uint64(length)],
+		) {
 			return e
 		}
 		index = (index + 1) & mask
@@ -441,13 +437,14 @@ func (m *flatMap) findOrInsert(key string, hash uint64) *mapEntry {
 func (m *flatMap) mergeFrom(other *flatMap) {
 	for i := range other.entries {
 		e := &other.entries[i]
-		if e.key == "" {
+		if e.len == 0 {
 			continue
 		}
 		if (m.size+1)*10 >= len(m.entries)*7 {
 			m.rehash(len(m.entries) * 2)
 		}
-		dst := m.findOrInsert(e.key, e.hash)
+		hash := hashBytes(m.data[e.pos : e.pos+uint64(e.len)])
+		dst := m.findOrInsert(e.pos, e.len, hash)
 		srcAgg := &other.aggs[e.id]
 		dstAgg := &m.aggs[dst.id]
 		for month := range srcAgg.months {
@@ -479,16 +476,17 @@ func (m *flatMap) rehash(capacity int) {
 	m.size = 0
 	for i := range old {
 		e := &old[i]
-		if e.key != "" {
+		if e.len != 0 {
 			m.insertRehashed(*e)
 		}
 	}
 }
 
 func (m *flatMap) insertRehashed(entry mapEntry) {
-	mask := uint64(len(m.entries) - 1)
-	index := entry.hash & mask
-	for m.entries[index].key != "" {
+	hash := hashBytes(m.data[entry.pos : entry.pos+uint64(entry.len)])
+	mask := uint32(len(m.entries) - 1)
+	index := hash & mask
+	for m.entries[index].len != 0 {
 		index = (index + 1) & mask
 	}
 	m.entries[index] = entry
@@ -511,12 +509,13 @@ func writeResult(w io.Writer, m *flatMap) error {
 	entries := make([]outputEntry, 0, m.size)
 	for i := range m.entries {
 		e := &m.entries[i]
-		if e.key != "" {
-			entries = append(entries, outputEntry{key: e.key, id: e.id})
+		if e.len != 0 {
+			entries = append(entries, outputEntry{pos: e.pos, len: e.len, id: e.id})
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].key < entries[j].key
+		a, b := &entries[i], &entries[j]
+		return bytes.Compare(m.data[a.pos:a.pos+uint64(a.len)], m.data[b.pos:b.pos+uint64(b.len)]) < 0
 	})
 
 	buffered := bufio.NewWriterSize(w, defaultBufferLen)
@@ -530,7 +529,7 @@ func writeResult(w io.Writer, m *flatMap) error {
 				continue
 			}
 			line = line[:0]
-			line = append(line, e.key...)
+			line = append(line, m.data[e.pos:e.pos+uint64(e.len)]...)
 			line = append(line, ',')
 			line = append(line, monthLabels[month]...)
 			line = append(line, '=')
@@ -540,7 +539,7 @@ func writeResult(w io.Writer, m *flatMap) error {
 			line = append(line, '/')
 			line = strconv.AppendUint(line, uint64(s.maxLen), 10)
 			line = append(line, '/')
-			line = strconv.AppendUint(line, s.messages, 10)
+			line = strconv.AppendUint(line, uint64(s.messages), 10)
 			line = append(line, '/')
 			line = strconv.AppendUint(line, s.stamps, 10)
 			line = append(line, '\n')
@@ -603,7 +602,7 @@ func openOutput(path string) (io.Writer, func(), error) {
 	}, nil
 }
 
-func hashBytes(data []byte) uint64 {
+func hashBytes(data []byte) uint32 {
 	n := len(data)
 	var a, b, c uint64
 	switch {
@@ -623,7 +622,7 @@ func hashBytes(data []byte) uint64 {
 		}
 	}
 	h := a*0x9e3779b185ebca87 ^ bits.RotateLeft64(b, 21) ^ bits.RotateLeft64(c, 43)
-	return mix64(h ^ uint64(n)*0xd6e8feb86659fd93)
+	return uint32(mix64(h ^ uint64(n)*0xd6e8feb86659fd93))
 }
 
 func mix64(x uint64) uint64 {

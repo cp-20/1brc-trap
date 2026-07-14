@@ -81,7 +81,7 @@ export type ApiErrorBody = {
 
 export type BenchmarkResult = {
   verdict: Verdict;
-  durationsNs: [string, string, string] | null;
+  durationsNs: [string] | [string, string, string] | null;
   medianNs: string | null;
   error: string | null;
 };

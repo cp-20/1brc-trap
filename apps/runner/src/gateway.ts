@@ -1,6 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { access, chmod, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+} from "node:fs/promises";
 import { arch, cpus, totalmem } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -12,6 +21,7 @@ import {
   type Verdict,
 } from "@1brc/contracts";
 import { z } from "zod";
+import { shouldStopAfterFirstAttempt } from "./benchmark-policy.js";
 import { compareOutput } from "./compare.js";
 
 const config = z
@@ -148,10 +158,16 @@ async function benchmark(
   input: string,
   expected: string,
 ): Promise<BenchmarkResult> {
+  const cachedInput = await cacheInput(dataset, input);
   const durations: string[] = [];
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await prewarm(input);
-    const attemptResult = await runAttempt(id, kind, dataset, attempt, input);
+    const attemptResult = await runAttempt(
+      id,
+      kind,
+      dataset,
+      attempt,
+      cachedInput,
+    );
     if (attemptResult.verdict !== "accepted" || !attemptResult.durationNs) {
       await removeAttemptWork(id, dataset, attempt);
       return {
@@ -171,6 +187,7 @@ async function benchmark(
         error: comparison.error.message,
       };
     durations.push(attemptResult.durationNs);
+    if (shouldStopAfterFirstAttempt(attempt, attemptResult.durationNs)) break;
   }
   const sorted = [...durations].sort((a, b) => {
     const left = BigInt(a);
@@ -179,10 +196,32 @@ async function benchmark(
   });
   return {
     verdict: "accepted",
-    durationsNs: durations as [string, string, string],
-    medianNs: sorted[1]!,
+    durationsNs: durations as [string] | [string, string, string],
+    medianNs: sorted[Math.floor(sorted.length / 2)]!,
     error: null,
   };
+}
+
+async function cacheInput(dataset: "public" | "private", input: string) {
+  const cached = join(config.RUNNER_ROOT, "ram-data", `${dataset}.csv`);
+  const sourceStats = await stat(input);
+  const cachedStats = await stat(cached).catch(() => null);
+  if (
+    cachedStats?.size === sourceStats.size &&
+    Math.trunc(cachedStats.mtimeMs) === Math.trunc(sourceStats.mtimeMs)
+  )
+    return cached;
+
+  await rm(cached, { force: true });
+  try {
+    await copyFile(input, cached);
+    await utimes(cached, sourceStats.atime, sourceStats.mtime);
+    await chmod(cached, 0o444);
+    return cached;
+  } catch (error) {
+    await rm(cached, { force: true });
+    throw error;
+  }
 }
 
 async function runAttempt(
@@ -263,15 +302,6 @@ async function runAttempt(
       () => undefined,
     );
   }
-}
-
-async function prewarm(path: string) {
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(path);
-    stream.on("data", () => undefined);
-    stream.once("end", resolve);
-    stream.once("error", reject);
-  });
 }
 
 async function cleanup(args: string[]) {

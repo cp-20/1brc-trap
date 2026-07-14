@@ -88,6 +88,7 @@
         - { path: /var/lib/1brc, mode: "0755" }
         - { path: /var/lib/1brc/jobs, mode: "0700" }
         - { path: /var/lib/1brc/data, mode: "0755" }
+        - { path: /var/lib/1brc/ram-data, mode: "0755" }
         - { path: /var/lib/1brc/work, mode: "1777" }
         - { path: /home/onebrc/.ssh, mode: "0700" }
 
@@ -98,6 +99,22 @@
         fstype: tmpfs
         opts: rw,nosuid,nodev,size=1G,mode=1777
         state: mounted
+
+    - name: 入力データキャッシュ用tmpfsをマウントする
+      ansible.posix.mount:
+        path: /var/lib/1brc/ram-data
+        src: tmpfs
+        fstype: tmpfs
+        opts: rw,nosuid,nodev,size=52G,mode=0755
+        state: mounted
+
+    - name: 入力データキャッシュをrunnerから書き込めるようにする
+      ansible.builtin.file:
+        path: /var/lib/1brc/ram-data
+        state: directory
+        owner: onebrc
+        group: onebrc
+        mode: "0755"
 
     - name: Bunをダウンロードする
       ansible.builtin.get_url:

@@ -1,7 +1,6 @@
 import { buildLeaderboard } from "../domain/leaderboard.js";
 import type { Config } from "../infrastructures/config.js";
 import type { R2Signer } from "../infrastructures/r2-signer.js";
-import type { RunnerClient } from "../infrastructures/runner-client.js";
 import type { ContestRepository } from "../repositories/contest-repository.js";
 import { AppError } from "../utils/errors.js";
 
@@ -11,20 +10,12 @@ export function createContestService(
   repository: ContestRepository,
   signer: R2Signer,
   config: Config,
-  runner: RunnerClient,
 ) {
   return {
     async overview() {
-      const [state, participation, runtimeEnvironment] = await Promise.all([
+      const [state, participation] = await Promise.all([
         repository.state(),
         repository.participationStats(),
-        runner.environment().match(
-          (environment) => environment,
-          () => ({
-            cpu: config.BENCHMARK_CPU,
-            memory: config.BENCHMARK_MEMORY,
-          }),
-        ),
       ]);
       return {
         id: config.CONTEST_ID,
@@ -36,8 +27,8 @@ export function createContestService(
         environment: {
           id: config.BENCHMARK_ENVIRONMENT_ID,
           instanceType: config.BENCHMARK_INSTANCE_TYPE,
-          cpu: runtimeEnvironment.cpu,
-          memory: runtimeEnvironment.memory,
+          cpu: config.BENCHMARK_CPU,
+          memory: config.BENCHMARK_MEMORY,
           os: "Ubuntu 26.04 LTS",
           kernel: config.BENCHMARK_KERNEL,
           docker: config.BENCHMARK_DOCKER_VERSION,

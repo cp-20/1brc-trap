@@ -1,4 +1,7 @@
-use std::convert::TryInto;
+use std::arch::x86_64::{
+    __m256i, _mm256_cmpeq_epi8, _mm256_loadu_si256, _mm256_movemask_epi8,
+    _mm256_set1_epi8, _mm_crc32_u64,
+};
 use std::env;
 use std::ffi::c_void;
 use std::fs::{File, OpenOptions};
@@ -75,11 +78,11 @@ impl Drop for Mapping {
 
 #[derive(Clone, Copy, Default)]
 struct Stats {
-    messages: u64,
     total_len: u64,
     stamps: u64,
-    min_len: u32,
-    max_len: u32,
+    messages: u32,
+    min_len: u16,
+    max_len: u16,
 }
 #[derive(Clone)]
 struct Agg {
@@ -95,9 +98,9 @@ impl Default for Agg {
 #[derive(Clone, Copy, Default)]
 struct Entry {
     pos: usize,
-    hash: u64,
     len: u32,
-    id: u32,
+    id: u16,
+    tag: u16,
 }
 struct FlatMap {
     entries: Vec<Entry>,
@@ -112,18 +115,19 @@ impl FlatMap {
             size: 0,
         }
     }
-    fn find(&mut self, data: &[u8], pos: usize, len: u32, hash: u64) -> usize {
+    fn find(&mut self, data: &[u8], pos: usize, len: u32, hash: u32) -> usize {
         let mut i = hash as usize & (CAP - 1);
+        let tag = (hash >> 16) as u16;
         loop {
             let e = self.entries[i];
             if e.len == 0 {
-                let id = self.aggs.len() as u32;
-                self.entries[i] = Entry { pos, hash, len, id };
+                let id = self.aggs.len() as u16;
+                self.entries[i] = Entry { pos, len, id, tag };
                 self.aggs.push(Agg::default());
                 self.size += 1;
                 return i;
             }
-            if e.hash == hash
+            if e.tag == tag
                 && e.len == len
                 && data[e.pos..e.pos + len as usize] == data[pos..pos + len as usize]
             {
@@ -137,7 +141,7 @@ impl FlatMap {
         data: &[u8],
         pos: usize,
         len: u32,
-        hash: u64,
+        hash: u32,
         month: usize,
         ml: u32,
         stamps: u32,
@@ -146,23 +150,23 @@ impl FlatMap {
         let s = &mut self.aggs[self.entries[i].id as usize].month[month];
         if s.messages == 0 {
             *s = Stats {
-                messages: 1,
                 total_len: ml as u64,
                 stamps: stamps as u64,
-                min_len: ml,
-                max_len: ml,
+                messages: 1,
+                min_len: ml as u16,
+                max_len: ml as u16,
             }
         } else {
             s.messages += 1;
             s.total_len += ml as u64;
             s.stamps += stamps as u64;
-            s.min_len = s.min_len.min(ml);
-            s.max_len = s.max_len.max(ml)
+            s.min_len = s.min_len.min(ml as u16);
+            s.max_len = s.max_len.max(ml as u16)
         }
     }
     fn merge(&mut self, data: &[u8], other: &FlatMap) {
         for e in other.entries.iter().filter(|e| e.len != 0) {
-            let i = self.find(data, e.pos, e.len, e.hash);
+            let i = self.find(data, e.pos, e.len, hash_bytes(&data[e.pos..e.pos + e.len as usize]));
             let dst = &mut self.aggs[self.entries[i].id as usize];
             let src = &other.aggs[e.id as usize];
             for m in 0..12 {
@@ -192,46 +196,54 @@ impl FlatMap {
 }
 #[inline]
 fn load64(p: &[u8]) -> u64 {
-    u64::from_le_bytes(p[..8].try_into().unwrap())
+    unsafe { ptr::read_unaligned(p.as_ptr().cast()) }
 }
 #[inline]
-fn mix64(mut x: u64) -> u64 {
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xbf58476d1ce4e5b9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94d049bb133111eb);
-    x ^ (x >> 31)
-}
-#[inline]
-fn hash_bytes(p: &[u8]) -> u64 {
+fn hash_bytes(p: &[u8]) -> u32 {
     let n = p.len();
-    let (mut a, mut b, mut c) = (0, 0, 0);
-    if n >= 24 {
-        a = load64(p);
-        b = load64(&p[n / 2 - 4..]);
-        c = load64(&p[n - 8..]);
-    } else if n >= 8 {
-        a = load64(p);
-        c = load64(&p[n - 8..]);
-    } else {
-        for (i, &x) in p.iter().enumerate() {
-            a |= (x as u64) << (8 * i)
-        }
+    let mut hash = n as u64;
+    let mut i = 0;
+    while i + 8 <= n {
+        hash = unsafe { _mm_crc32_u64(hash, load64(&p[i..])) };
+        i += 8;
     }
-    mix64(
-        a.wrapping_mul(0x9e3779b185ebca87)
-            ^ b.rotate_left(21)
-            ^ c.rotate_left(43)
-            ^ (n as u64).wrapping_mul(0xd6e8feb86659fd93),
-    )
+    if n < 8 {
+        let mut x = 0;
+        for (i, &byte) in p.iter().enumerate() {
+            x |= (byte as u64) << (8 * i)
+        }
+        hash = unsafe { _mm_crc32_u64(hash, x) };
+    } else if i < n {
+        hash = unsafe { _mm_crc32_u64(hash, load64(&p[n - 8..])) };
+    }
+    hash as u32
 }
 #[inline]
 fn timestamp(p: &[u8]) -> u32 {
-    let mut x = (p[0] - b'0') as u32;
-    for &c in &p[1..10] {
-        x = x * 10 + (c - b'0') as u32
+    let mut x = load64(p) & 0x0f0f0f0f0f0f0f0f;
+    x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
+    x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
+    let first8 = (x as u32) * 10000 + (x >> 32) as u32;
+    first8 * 100 + (p[8] - b'0') as u32 * 10 + (p[9] - b'0') as u32
+}
+#[inline]
+fn channel_length(data: &[u8], begin: usize, end: usize) -> usize {
+    let comma = unsafe { _mm256_set1_epi8(b',' as i8) };
+    let mut offset = 0;
+    while begin + offset + 32 <= end {
+        let block = unsafe {
+            _mm256_loadu_si256(data.as_ptr().add(begin + offset).cast::<__m256i>())
+        };
+        let mask = unsafe { _mm256_movemask_epi8(_mm256_cmpeq_epi8(block, comma)) } as u32;
+        if mask != 0 {
+            return offset + mask.trailing_zeros() as usize;
+        }
+        offset += 32;
     }
-    x
+    while begin + offset < end && data[begin + offset] != b',' {
+        offset += 1;
+    }
+    offset
 }
 fn month_table() -> [u8; 365] {
     let mut a = [0; 365];
@@ -257,29 +269,24 @@ fn analyze_chunk(data: &[u8], begin: usize, end: usize, months: &[u8; 365]) -> F
         let month = months[((ts - YEAR_START) / 86400) as usize] as usize;
         p += 11;
         let key = p;
-        while data[p] != b',' {
-            p += 1
-        }
+        p += channel_length(data, key, end);
         let len = (p - key) as u32;
         let hash = hash_bytes(&data[key..p]);
         p += 1;
-        let mut ml = 0;
+        let mut ml = (data[p] - b'0') as u32;
+        p += 1;
         while data[p] != b',' {
             ml = ml * 10 + (data[p] - b'0') as u32;
             p += 1
         }
         p += 1;
-        let mut stamps = 0;
-        while p < end && data[p].wrapping_sub(b'0') <= 9 {
+        let mut stamps = (data[p] - b'0') as u32;
+        p += 1;
+        while data[p] != b'\n' {
             stamps = stamps * 10 + (data[p] - b'0') as u32;
             p += 1
         }
-        while p < end && data[p] != b'\n' {
-            p += 1
-        }
-        if p < end {
-            p += 1
-        }
+        p += 1;
         map.add(data, key, len, hash, month, ml, stamps)
     }
     map

@@ -1,0 +1,5 @@
+unix_timestamp,channel_path,message_length,stamp_count
+1798761600,custom/a-channel-name-that-is-deliberately-longer-than-sixty-four-bytes-and-is-not-from-the-generator,10,2
+1798761601,custom/a-channel-name-that-is-deliberately-longer-than-sixty-four-bytes-and-is-not-from-the-generator,30,4
+1801440000,custom/a-channel-name-that-is-deliberately-longer-than-sixty-four-bytes-and-is-not-from-the-generator,20,1
+1827619200,zeta channel with spaces,7,0

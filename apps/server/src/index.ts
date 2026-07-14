@@ -28,7 +28,7 @@ const app = createApp({
   config,
   database,
   logger,
-  contest: createContestService(contestRepository, datasets, config, runner),
+  contest: createContestService(contestRepository, datasets, config),
   administration: createAdminService(
     administrationRepository,
     submissionRepository,

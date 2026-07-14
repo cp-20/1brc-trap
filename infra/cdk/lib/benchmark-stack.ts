@@ -24,7 +24,7 @@ export class BenchmarkStack extends Stack {
     );
     const environmentId =
       (this.node.tryGetContext("benchmarkEnvironmentId") as
-        string | undefined) ?? "r7i-2xlarge-ubuntu26-v1";
+        string | undefined) ?? "r7i-2xlarge-ubuntu26-v2";
     if (!keyPairName) throw new Error("CDK context keyPairName is required");
     if (!Number.isInteger(volumeSizeGiB) || volumeSizeGiB < 100)
       throw new Error("volumeSizeGiB must be at least 100");

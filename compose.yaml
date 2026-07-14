@@ -24,7 +24,7 @@ x-app-environment: &app-environment
   RUNNER_SSH_PORT: "22"
   RUNNER_SSH_USER: onebrc
   RUNNER_SSH_PASSWORD: onebrc
-  BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v1
+  BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v2
   BENCHMARK_INSTANCE_TYPE: docker-local
   BENCHMARK_CPU: CPU情報を取得できません
   BENCHMARK_MEMORY: メモリ情報を取得できません
@@ -115,13 +115,14 @@ services:
       RUNNER_PUBLIC_EXPECTED: /var/lib/1brc/data/public.expected
       RUNNER_PRIVATE_INPUT: /var/lib/1brc/data/private.csv
       RUNNER_PRIVATE_EXPECTED: /var/lib/1brc/data/private.expected
-      BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v1
+      BENCHMARK_ENVIRONMENT_ID: local-ubuntu26-v2
     volumes:
       - benchmark-docker:/var/lib/docker
       - benchmark-jobs:/var/lib/1brc/jobs
       - ./data/local:/var/lib/1brc/data
     tmpfs:
       - /var/lib/1brc/work:size=1073741824,mode=1777
+      - /var/lib/1brc/ram-data:size=1073741824,mode=1777
     ports:
       - "2222:22"
     healthcheck:
