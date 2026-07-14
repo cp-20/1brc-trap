@@ -16,22 +16,22 @@ COPY apps/mock-auth/package.json ./apps/mock-auth/package.json
 COPY apps/runner/package.json ./apps/runner/package.json
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
-COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/domain/package.json ./packages/domain/package.json
 COPY infra/cdk/package.json ./infra/cdk/package.json
 RUN --mount=type=cache,id=onebrc-bun,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile --ignore-scripts \
       --filter '.' \
       --filter './apps/runner' \
-      --filter './packages/contracts'
+      --filter './packages/domain'
 
 FROM dependencies AS builder
-COPY packages/contracts ./packages/contracts
+COPY packages/domain ./packages/domain
 COPY apps/runner ./apps/runner
 RUN bun run --filter @1brc/runner build
 
 FROM ubuntu:26.04@sha256:c6c0067e0e45b7a826eaebb193cef957be28045380963a9b1eeb2a5d3c70a1b9
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates docker.io openssh-server curl libstdc++6 && rm -rf /var/lib/apt/lists/* && \
+    ca-certificates docker.io openssh-server curl libstdc++6 util-linux && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /run/sshd /var/lib/1brc/jobs /var/lib/1brc/data /var/lib/1brc/work && \
     useradd --create-home --shell /bin/bash onebrc && echo 'onebrc:onebrc' | chpasswd && \
     usermod -aG docker onebrc && chown -R onebrc:onebrc /var/lib/1brc && chmod 1777 /var/lib/1brc/work && \

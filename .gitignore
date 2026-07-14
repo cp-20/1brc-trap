@@ -23,6 +23,7 @@ dist/
 coverage/
 *.tsbuildinfo
 cdk.out/
+infra/cdk/cdk-outputs.json
 .terraform/
 *.tfstate
 *.tfstate.*

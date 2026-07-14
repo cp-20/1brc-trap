@@ -7,5 +7,4 @@ export RUNNER_PUBLIC_EXPECTED="${RUNNER_PUBLIC_EXPECTED:-/var/lib/1brc/data/publ
 export RUNNER_PRIVATE_INPUT="${RUNNER_PRIVATE_INPUT:-/var/lib/1brc/data/private.csv}"
 export RUNNER_PRIVATE_EXPECTED="${RUNNER_PRIVATE_EXPECTED:-/var/lib/1brc/data/private.expected}"
 export BENCHMARK_ENVIRONMENT_ID="${BENCHMARK_ENVIRONMENT_ID:-local-ubuntu26-v2}"
-export RUNNER_TIMEOUT_SECONDS="${RUNNER_TIMEOUT_SECONDS:-900}"
 exec /opt/bun/bin/bun /opt/1brc/runner/gateway.js

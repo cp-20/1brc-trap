@@ -27,40 +27,40 @@ export type ContestRepository = ReturnType<typeof createContestRepository>;
 
 export function createContestRepository(database: Database) {
   return {
-    async state() {
-      const result = await database.query<ContestStateRow[]>(
-        "SELECT * FROM contest_state WHERE singleton_id = 1",
-      );
-      if (result.isErr()) throw result.error;
-      return result.value[0] ?? null;
+    state() {
+      return database
+        .query<ContestStateRow[]>(
+          "SELECT * FROM contest_state WHERE singleton_id = 1",
+        )
+        .map((rows) => rows[0] ?? null);
     },
-    async privatePublished() {
-      const result = await database.query<ContestStateRow[]>(
-        "SELECT private_published_at FROM contest_state WHERE singleton_id = 1",
-      );
-      if (result.isErr()) throw result.error;
-      return Boolean(result.value[0]?.private_published_at);
+    privatePublished() {
+      return database
+        .query<ContestStateRow[]>(
+          "SELECT private_published_at FROM contest_state WHERE singleton_id = 1",
+        )
+        .map((rows) => Boolean(rows[0]?.private_published_at));
     },
-    async participationStats() {
-      const result = await database.query<
-        (RowDataPacket & {
-          participant_count: number;
-          submission_count: number;
-        })[]
-      >(
-        `SELECT COUNT(DISTINCT username) AS participant_count,
+    participationStats() {
+      return database
+        .query<
+          (RowDataPacket & {
+            participant_count: number;
+            submission_count: number;
+          })[]
+        >(
+          `SELECT COUNT(DISTINCT username) AS participant_count,
                 COUNT(*) AS submission_count
            FROM submissions
           WHERE status <> 'rejected'`,
-      );
-      if (result.isErr()) throw result.error;
-      return {
-        participants: Number(result.value[0]?.participant_count ?? 0),
-        totalSubmissions: Number(result.value[0]?.submission_count ?? 0),
-      };
+        )
+        .map((rows) => ({
+          participants: Number(rows[0]?.participant_count ?? 0),
+          totalSubmissions: Number(rows[0]?.submission_count ?? 0),
+        }));
     },
-    async leaderboard(language?: string) {
-      const result = await database.query<LeaderboardRow[]>(
+    leaderboard(language?: string) {
+      return database.query<LeaderboardRow[]>(
         `SELECT u.username, s.id AS submission_id, s.language,
                 s.public_verdict, s.public_score_ns, s.private_verdict, s.private_score_ns,
                 s.disqualified_reason, s.upload_started_at AS submitted_at
@@ -71,29 +71,25 @@ export function createContestRepository(database: Database) {
           ORDER BY s.upload_started_at ASC`,
         [language ?? null, language ?? null],
       );
-      if (result.isErr()) throw result.error;
-      return result.value;
     },
-    async publicDatasets(contestId: string) {
-      const result = await database.query<DatasetRow[]>(
+    publicDatasets(contestId: string) {
+      return database.query<DatasetRow[]>(
         `SELECT contest_id, artifact_id, kind, label, object_key, rows_count, compressed_bytes,
                 uncompressed_bytes, compressed_sha256, uncompressed_sha256
            FROM dataset_releases WHERE contest_id = ? AND is_public = TRUE ORDER BY rows_count, kind`,
         [contestId],
       );
-      if (result.isErr()) throw result.error;
-      return result.value;
     },
-    async publicDataset(contestId: string, artifactId: string) {
-      const result = await database.query<DatasetRow[]>(
-        `SELECT contest_id, artifact_id, kind, label, object_key, rows_count, compressed_bytes,
+    publicDataset(contestId: string, artifactId: string) {
+      return database
+        .query<DatasetRow[]>(
+          `SELECT contest_id, artifact_id, kind, label, object_key, rows_count, compressed_bytes,
                 uncompressed_bytes, compressed_sha256, uncompressed_sha256
            FROM dataset_releases
           WHERE contest_id = ? AND artifact_id = ? AND is_public = TRUE LIMIT 1`,
-        [contestId, artifactId],
-      );
-      if (result.isErr()) throw result.error;
-      return result.value[0] ?? null;
+          [contestId, artifactId],
+        )
+        .map((rows) => rows[0] ?? null);
     },
   };
 }

@@ -55,6 +55,7 @@
           - docker-buildx
           - docker.io
           - unzip
+          - util-linux
           - xz-utils
           - zstd
         state: present

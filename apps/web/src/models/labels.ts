@@ -1,4 +1,4 @@
-import type { Language, Verdict } from "@1brc/contracts";
+import type { Language, Verdict } from "@1brc/domain";
 
 const languageLabels: Record<Language, string> = {
   c: "C",

@@ -1,25 +1,23 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createWriteStream } from "node:fs";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import Busboy from "busboy";
-import type { ExecutionKind, Language } from "@1brc/contracts";
+import type { ExecutionKind, Language } from "@1brc/domain";
 import {
   executionKindSchema,
   inferLanguage,
+  submissionPolicy,
   sourceExtensions,
-} from "@1brc/contracts";
+} from "@1brc/domain";
+import { errAsync, okAsync, ResultAsync } from "neverthrow";
 import type { Config } from "../infrastructures/config.js";
 import type { RunnerClient } from "../infrastructures/runner-client.js";
 import type { SubmissionRepository } from "../repositories/submission-repository.js";
 import { AppError } from "../utils/errors.js";
-
-const sourceLimit = 1024 * 1024;
-const binaryLimit = 64 * 1024 * 1024;
-const uploadTimeoutMs = 15 * 60 * 1000;
 
 type ParsedUpload = {
   executionKind: ExecutionKind;
@@ -38,63 +36,104 @@ export function createSubmissionService(
   runner: RunnerClient,
   config: Config,
 ) {
-  async function discardReservation(id: string) {
-    await runner.cleanup(id);
-    await repository.discardUpload(id);
+  function removeTemporaryDirectory(directory: string | undefined) {
+    return directory
+      ? ResultAsync.fromPromise(
+          rm(directory, { recursive: true, force: true }),
+          (cause) =>
+            new AppError(
+              "infrastructure",
+              "upload_cleanup_failed",
+              "一時ファイルを削除できませんでした",
+              cause,
+            ),
+        )
+      : okAsync(undefined);
+  }
+
+  function ignoreFailure(result: ResultAsync<unknown, AppError>) {
+    return result.map(() => undefined).orElse(() => okAsync(undefined));
+  }
+
+  function discardReservation(
+    id: string,
+    directory: string | undefined,
+    error: AppError,
+  ) {
+    return ignoreFailure(runner.cleanup(id))
+      .andThen(() => ignoreFailure(repository.discardUpload(id)))
+      .andThen(() => ignoreFailure(removeTemporaryDirectory(directory)))
+      .andThen(() => errAsync(error));
   }
 
   return {
-    async accept(username: string, request: Request) {
-      const reservation = await repository.reserve(username, config);
-      let parsed: ParsedUpload | undefined;
-      try {
-        parsed = await parseMultipart(request, reservation.id);
-        await validateUpload(parsed);
-        await repository.storeSource(
-          reservation.id,
-          parsed.sourceFilename,
-          createHash("sha256").update(parsed.source).digest("hex"),
-          parsed.source,
-        );
-        await runner
-          .upload(
-            reservation.id,
-            parsed.executionKind,
-            parsed.artifactSha256,
-            parsed.artifactPath,
+    accept(username: string, request: Request) {
+      return repository.reserve(username, config).andThen((reservation) => {
+        let cleanupDirectory: string | undefined;
+        return ResultAsync.fromPromise(
+          parseMultipart(request, reservation.id),
+          uploadError,
+        )
+          .andThen((parsed) => {
+            cleanupDirectory = parsed.cleanupDirectory;
+            return ResultAsync.fromPromise(
+              validateUpload(parsed),
+              uploadError,
+            ).map(() => parsed);
+          })
+          .andThen((parsed) =>
+            repository
+              .storeSource(
+                reservation.id,
+                parsed.sourceFilename,
+                createHash("sha256").update(parsed.source).digest("hex"),
+                parsed.source,
+              )
+              .map(() => parsed),
           )
-          .match(
-            () => undefined,
-            (error) => {
-              throw error;
-            },
+          .andThen((parsed) =>
+            runner
+              .upload(
+                reservation.id,
+                parsed.executionKind,
+                parsed.artifactSha256,
+                parsed.artifactPath,
+              )
+              .map(() => parsed),
+          )
+          .andThen((parsed) =>
+            repository
+              .queueUpload(
+                reservation.id,
+                parsed.executionKind,
+                parsed.language,
+                parsed.sourceFilename,
+                parsed.artifactSha256,
+              )
+              .map(() => reservation),
+          )
+          .andThen((accepted) =>
+            ignoreFailure(removeTemporaryDirectory(cleanupDirectory)).map(
+              () => accepted,
+            ),
+          )
+          .orElse((error) =>
+            discardReservation(reservation.id, cleanupDirectory, error),
           );
-        await repository.queueUpload(
-          reservation.id,
-          parsed.executionKind,
-          parsed.language,
-          parsed.sourceFilename,
-          parsed.artifactSha256,
-        );
-        return reservation;
-      } catch (error) {
-        const appError =
-          error instanceof AppError
-            ? error
-            : new AppError(
-                "bad_request",
-                "invalid_upload",
-                error instanceof Error ? error.message : "Invalid upload",
-                error,
-              );
-        await discardReservation(reservation.id);
-        throw appError;
-      } finally {
-        if (parsed)
-          await rm(parsed.cleanupDirectory, { recursive: true, force: true });
-      }
+      });
     },
   };
+}
+
+function uploadError(cause: unknown) {
+  return cause instanceof AppError
+    ? cause
+    : new AppError(
+        "bad_request",
+        "invalid_upload",
+        cause instanceof Error ? cause.message : "Invalid upload",
+        cause,
+      );
 }
 
 async function parseMultipart(
@@ -144,7 +183,7 @@ async function parseMultipart(
           "アップロードは15分以内に完了してください",
         ),
       );
-    }, uploadTimeoutMs);
+    }, submissionPolicy.uploadTimeoutMs);
 
     const finish = (callback: () => void) => {
       if (settled) return;
@@ -177,7 +216,7 @@ async function parseMultipart(
           parts: 6,
           fieldNameSize: 64,
           fieldSize: 64,
-          fileSize: binaryLimit,
+          fileSize: submissionPolicy.binaryLimitBytes,
         },
       });
     } catch (error) {
@@ -239,7 +278,10 @@ async function parseMultipart(
         return;
       }
       const path = name === "source" ? sourcePath : binaryPath;
-      const limit = name === "source" ? sourceLimit : binaryLimit;
+      const limit =
+        name === "source"
+          ? submissionPolicy.sourceLimitBytes
+          : submissionPolicy.binaryLimitBytes;
       let bytes = 0;
       let truncated = false;
       const digest = createHash("sha256");

@@ -1,5 +1,5 @@
 {
-  "name": "@1brc/contracts",
+  "name": "@1brc/domain",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -5,23 +5,24 @@ import {
   chmod,
   copyFile,
   mkdir,
-  readFile,
   rm,
   stat,
   utimes,
 } from "node:fs/promises";
-import { arch, cpus, totalmem } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
+  benchmarkPolicy,
   executionKindSchema,
   languageSchema,
+  shouldStopAfterFirstAttempt,
+  submissionPolicy,
   type BenchmarkResult,
   type Verdict,
-} from "@1brc/contracts";
+} from "@1brc/domain";
 import { z } from "zod";
-import { shouldStopAfterFirstAttempt } from "./benchmark-policy.js";
 import { compareOutput } from "./compare.js";
 
 const config = z
@@ -34,7 +35,6 @@ const config = z
     RUNNER_PRIVATE_INPUT: z.string().min(1),
     RUNNER_PRIVATE_EXPECTED: z.string().min(1),
     BENCHMARK_ENVIRONMENT_ID: z.string().min(1),
-    RUNNER_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(900),
   })
   .parse(process.env);
 
@@ -49,16 +49,11 @@ try {
       await upload(parts);
       break;
     case "run":
-      await run(parts);
+      if (process.env.ONEBRC_RUN_LOCKED === "1") await run(parts);
+      else await runUnderLock();
       break;
     case "cleanup":
       await cleanup(parts);
-      break;
-    case "status":
-      await status(parts);
-      break;
-    case "environment":
-      environment();
       break;
     default:
       throw new Error("unsupported runner command");
@@ -82,7 +77,10 @@ async function upload(args: string[]) {
   const final = artifactPath(id, kind);
   const digest = createHash("sha256");
   let bytes = 0;
-  const limit = kind === "native" ? 64 * 1024 * 1024 : 1024 * 1024;
+  const limit =
+    kind === "native"
+      ? submissionPolicy.binaryLimitBytes
+      : submissionPolicy.sourceLimitBytes;
   process.stdin.on("data", (chunk: Buffer) => {
     bytes += chunk.length;
     digest.update(chunk);
@@ -108,47 +106,58 @@ async function run(args: string[]) {
   validateId(id);
   const kind = executionKindSchema.parse(kindValue);
   const language = languageSchema.parse(languageValue);
-  const lock = join(config.RUNNER_ROOT, "run.lock");
-  await mkdir(config.RUNNER_ROOT, { recursive: true });
-  try {
-    await mkdir(lock);
-  } catch {
-    throw new Error("runner is busy");
-  }
-  try {
-    await access(artifactPath(id, kind));
-    const publicResult = await benchmark(
-      id,
-      kind,
-      "public",
-      config.RUNNER_PUBLIC_INPUT,
-      config.RUNNER_PUBLIC_EXPECTED,
-    );
-    const privateResult =
-      publicResult.verdict === "accepted"
-        ? await benchmark(
-            id,
-            kind,
-            "private",
-            config.RUNNER_PRIVATE_INPUT,
-            config.RUNNER_PRIVATE_EXPECTED,
-          )
-        : null;
-    const result = {
+  await access(artifactPath(id, kind));
+  const publicResult = await benchmark(
+    id,
+    kind,
+    "public",
+    config.RUNNER_PUBLIC_INPUT,
+    config.RUNNER_PUBLIC_EXPECTED,
+  );
+  const privateResult =
+    publicResult.verdict === "accepted"
+      ? await benchmark(
+          id,
+          kind,
+          "private",
+          config.RUNNER_PRIVATE_INPUT,
+          config.RUNNER_PRIVATE_EXPECTED,
+        )
+      : null;
+  process.stdout.write(
+    `${JSON.stringify({
       public: publicResult,
       private: privateResult,
       environmentId: config.BENCHMARK_ENVIRONMENT_ID,
       language,
-    };
-    await import("node:fs/promises").then(({ writeFile }) =>
-      writeFile(join(jobDirectory(id), "result.json"), JSON.stringify(result), {
-        mode: 0o600,
-      }),
+    })}\n`,
+  );
+}
+
+async function runUnderLock() {
+  await mkdir(config.RUNNER_ROOT, { recursive: true });
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    const child = spawn(
+      "flock",
+      [
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        join(config.RUNNER_ROOT, "run.lock"),
+        process.execPath,
+        fileURLToPath(import.meta.url),
+        ...process.argv.slice(2),
+      ],
+      {
+        stdio: "inherit",
+        env: { ...process.env, ONEBRC_RUN_LOCKED: "1" },
+      },
     );
-    process.stdout.write(`${JSON.stringify(result)}\n`);
-  } finally {
-    await rm(lock, { recursive: true, force: true });
-  }
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
+  if (exitCode === 75) throw new Error("runner is busy");
+  if (exitCode !== 0) process.exitCode = exitCode;
 }
 
 async function benchmark(
@@ -160,7 +169,7 @@ async function benchmark(
 ): Promise<BenchmarkResult> {
   const cachedInput = await cacheInput(dataset, input);
   const durations: string[] = [];
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= benchmarkPolicy.repetitions; attempt += 1) {
     const attemptResult = await runAttempt(
       id,
       kind,
@@ -257,7 +266,7 @@ async function runAttempt(
     "--security-opt",
     "no-new-privileges=true",
     "--pids-limit",
-    "4096",
+    String(benchmarkPolicy.pidLimit),
     "--mount",
     `type=bind,src=${workDirectory},dst=/work`,
     "--mount",
@@ -271,15 +280,17 @@ async function runAttempt(
     containerArtifact,
     "/input/data.csv",
     "/work/output.txt",
-    String(config.RUNNER_TIMEOUT_SECONDS),
+    String(benchmarkPolicy.timeoutSeconds),
+    String(benchmarkPolicy.stdioLimitBytes),
+    String(benchmarkPolicy.outputLimitBytes),
   ];
   await execute("docker", createArgs, 60_000);
   try {
     const raw = await execute(
       "docker",
       ["start", "-a", container],
-      (config.RUNNER_TIMEOUT_SECONDS + 30) * 1000,
-      1024 * 1024,
+      (benchmarkPolicy.timeoutSeconds + 30) * 1000,
+      benchmarkPolicy.stdioLimitBytes,
     );
     const result = JSON.parse(raw.trim()) as {
       verdict: Verdict;
@@ -288,7 +299,7 @@ async function runAttempt(
     };
     if (result.verdict === "accepted") {
       const outputStats = await stat(output);
-      if (outputStats.size > 256 * 1024 * 1024)
+      if (outputStats.size > benchmarkPolicy.outputLimitBytes)
         return {
           verdict: "output_limit" as const,
           durationNs: null,
@@ -313,29 +324,6 @@ async function cleanup(args: string[]) {
     force: true,
   });
   process.stdout.write("ok\n");
-}
-
-async function status(args: string[]) {
-  const [id] = args;
-  validateId(id);
-  try {
-    process.stdout.write(
-      await readFile(join(jobDirectory(id), "result.json"), "utf8"),
-    );
-  } catch {
-    process.stdout.write(JSON.stringify({ status: "pending" }));
-  }
-}
-
-function environment() {
-  const processors = cpus();
-  const model = processors[0]?.model.trim() ?? "Unknown CPU";
-  process.stdout.write(
-    `${JSON.stringify({
-      cpu: `${model} · ${processors.length} logical CPUs · ${arch()}`,
-      memory: `${(totalmem() / 1024 ** 3).toFixed(1)} GiB`,
-    })}\n`,
-  );
 }
 
 function jobDirectory(id: string) {

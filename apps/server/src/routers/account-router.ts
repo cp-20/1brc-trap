@@ -1,17 +1,27 @@
 import { Hono } from "hono";
-import type { AdminService } from "../services/admin-service.js";
+import type { AccountService } from "../services/account-service.js";
 import type { RouterEnv } from "./router-context.js";
-import { requireHeaderUser } from "./router-context.js";
+import { requireHeaderUser, resultResponse } from "./router-context.js";
 
-export function createAccountRouter(service: AdminService) {
+export function createAccountRouter(service: AccountService) {
   return new Hono<RouterEnv>()
     .get("/me", (context) => context.json({ user: context.get("authUser") }))
-    .post("/access-key", async (context) => {
-      const user = requireHeaderUser(context);
-      return context.json(await service.issueAccessKey(user.username), 201);
-    })
-    .delete("/access-key", async (context) => {
-      await service.revokeAccessKey(requireHeaderUser(context).username);
-      return context.body(null, 204);
-    });
+    .post("/access-key", (context) =>
+      resultResponse(
+        context,
+        requireHeaderUser(context).asyncAndThen((user) =>
+          service.issueAccessKey(user.username),
+        ),
+        (issued) => context.json(issued, 201),
+      ),
+    )
+    .delete("/access-key", (context) =>
+      resultResponse(
+        context,
+        requireHeaderUser(context).asyncAndThen((user) =>
+          service.revokeAccessKey(user.username),
+        ),
+        () => context.body(null, 204),
+      ),
+    );
 }

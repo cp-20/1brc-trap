@@ -1,7 +1,8 @@
+import type { Language } from "@1brc/domain";
 import { rpc, rpcResult } from "./api-client.js";
 
 const getContest = () => rpcResult(rpc.contest.$get());
-const getLeaderboard = (board: "public" | "private", language?: string) =>
+const getLeaderboard = (board: "public" | "private", language?: Language) =>
   rpcResult(
     rpc.leaderboard.$get({
       query: language ? { board, language } : { board },
@@ -30,7 +31,7 @@ export const contestGateway = {
   leaderboard: getLeaderboard,
   subscribe(
     board: "public" | "private",
-    language: string | undefined,
+    language: Language | undefined,
     onUpdate: (data: ContestLiveUpdate) => void,
   ) {
     const source = new EventSource(

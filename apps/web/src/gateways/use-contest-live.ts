@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import type { Language } from "@1brc/domain";
 import { useEffect } from "react";
 import {
   contestGateway,
@@ -6,7 +7,10 @@ import {
   type ContestOverview,
 } from "./contest-gateway.js";
 
-export function useContestLive(board: "public" | "private", language = "all") {
+export function useContestLive(
+  board: "public" | "private",
+  language: "all" | Language = "all",
+) {
   const queryClient = useQueryClient();
 
   useEffect(

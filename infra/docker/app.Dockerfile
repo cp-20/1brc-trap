@@ -18,14 +18,14 @@ COPY apps/mock-auth/package.json ./apps/mock-auth/package.json
 COPY apps/runner/package.json ./apps/runner/package.json
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
-COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/domain/package.json ./packages/domain/package.json
 COPY infra/cdk/package.json ./infra/cdk/package.json
 
 FROM manifests AS production-dependencies
 RUN --mount=type=cache,id=onebrc-bun,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile --production --ignore-scripts \
       --filter './apps/server' \
-      --filter './packages/contracts'
+      --filter './packages/domain'
 
 FROM production-dependencies AS dependencies
 RUN --mount=type=cache,id=onebrc-bun,target=/root/.bun/install/cache,sharing=locked \
@@ -34,20 +34,20 @@ RUN --mount=type=cache,id=onebrc-bun,target=/root/.bun/install/cache,sharing=loc
       --filter './apps/mock-auth' \
       --filter './apps/server' \
       --filter './apps/web' \
-      --filter './packages/contracts'
+      --filter './packages/domain'
 
 FROM dependencies AS backend-builder
-COPY packages/contracts ./packages/contracts
+COPY packages/domain ./packages/domain
 COPY apps/mock-auth ./apps/mock-auth
 COPY apps/server ./apps/server
 RUN bun run --parallel \
-      --filter @1brc/contracts \
+      --filter @1brc/domain \
       --filter @1brc/mock-auth \
       --filter @1brc/server \
       build
 
 FROM dependencies AS web-builder
-COPY packages/contracts ./packages/contracts
+COPY packages/domain ./packages/domain
 COPY apps/server ./apps/server
 COPY apps/web ./apps/web
 RUN bun run --filter @1brc/web build
@@ -56,7 +56,7 @@ FROM bun-base
 RUN groupadd --system --gid 10001 onebrc && useradd --system --uid 10001 --gid onebrc --home /app onebrc
 WORKDIR /app
 COPY --from=production-dependencies --chown=onebrc:onebrc /app /app
-COPY --from=backend-builder --chown=onebrc:onebrc /app/packages/contracts/src ./packages/contracts/src
+COPY --from=backend-builder --chown=onebrc:onebrc /app/packages/domain/src ./packages/domain/src
 COPY --from=backend-builder --chown=onebrc:onebrc /app/apps/mock-auth/dist ./apps/mock-auth/dist
 COPY --from=backend-builder --chown=onebrc:onebrc /app/apps/server/dist ./apps/server/dist
 COPY --from=backend-builder --chown=onebrc:onebrc /app/apps/server/migrations ./apps/server/migrations

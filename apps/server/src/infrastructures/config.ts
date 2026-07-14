@@ -48,7 +48,6 @@ const envSchema = z.object({
     .default(
       "libc6,libgcc-s1,libstdc++6,zlib1g,libssl3t64,libyaml-0-2,libreadline8t64,libffi8,libgdbm6t64",
     ),
-  DEV_AUTH_ENABLED: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
@@ -86,6 +85,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         .filter(Boolean),
     ),
     trustProxyHeader: parsed.TRUST_PROXY_HEADER === "true",
-    devAuthEnabled: parsed.DEV_AUTH_ENABLED === "true",
   };
 }

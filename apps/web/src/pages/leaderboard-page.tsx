@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { Language } from "@1brc/domain";
 import { useEffect, useState } from "react";
 import { LeaderboardTable } from "../components/leaderboard-table.js";
 import { Select } from "../components/select.js";
@@ -17,7 +18,7 @@ export function LeaderboardPage() {
     queryFn: contestGateway.contest,
   });
   const [board, setBoard] = useState<"public" | "private">("public");
-  const [language, setLanguage] = useState("all");
+  const [language, setLanguage] = useState<"all" | Language>("all");
   useEffect(() => {
     setBoard(contest.data?.privatePublishedAt ? "private" : "public");
   }, [contest.data?.privatePublishedAt]);
@@ -59,7 +60,7 @@ export function LeaderboardPage() {
           ariaLabel="言語で絞り込む"
           compact
           value={language}
-          onValueChange={setLanguage}
+          onValueChange={(value) => setLanguage(value as "all" | Language)}
           options={[
             { value: "all", label: "すべての言語" },
             ...selectableLanguages.map((value) => ({

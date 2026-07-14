@@ -10,9 +10,10 @@ import { authMiddleware, type AppVariables } from "./middlewares/auth.js";
 import { createAccountRouter } from "./routers/account-router.js";
 import { createAdminRouter } from "./routers/admin-router.js";
 import { createContestRouter } from "./routers/contest-router.js";
-import type { RouterEnv } from "./routers/router-context.js";
+import { errorResponse, type RouterEnv } from "./routers/router-context.js";
 import { createSubmissionRouter } from "./routers/submission-router.js";
 import type { AdminService } from "./services/admin-service.js";
+import type { AccountService } from "./services/account-service.js";
 import type { ContestService } from "./services/contest-service.js";
 import type { SubmissionQueryService } from "./services/submission-query-service.js";
 import type { SubmissionService } from "./services/submission-service.js";
@@ -23,6 +24,7 @@ export type AppDependencies = {
   database: Database;
   logger: Logger;
   contest: ContestService;
+  account: AccountService;
   administration: AdminService;
   submissions: SubmissionService;
   submissionQueries: SubmissionQueryService;
@@ -39,7 +41,7 @@ export function createApiRoutes(dependencies: AppDependencies) {
         : context.json({ ok: false }, 503);
     })
     .route("/", createContestRouter(dependencies.contest))
-    .route("/", createAccountRouter(dependencies.administration))
+    .route("/", createAccountRouter(dependencies.account))
     .route(
       "/",
       createSubmissionRouter(
@@ -76,10 +78,9 @@ export function createApp(dependencies: AppDependencies) {
       context.get("authUser")?.method === "header"
     ) {
       if (context.req.header("origin") !== dependencies.config.APP_ORIGIN) {
-        throw new AppError(
-          "forbidden",
-          "invalid_origin",
-          "Originが一致しません",
+        return errorResponse(
+          context,
+          new AppError("forbidden", "invalid_origin", "Originが一致しません"),
         );
       }
     }

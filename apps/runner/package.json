@@ -11,7 +11,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@1brc/contracts": "workspace:*",
+    "@1brc/domain": "workspace:*",
     "neverthrow": "^8.2.0",
     "zod": "^4.4.3"
   },

@@ -6,9 +6,11 @@ import { migrateDatabase } from "./infrastructures/migrations.js";
 import { createR2Signer } from "./infrastructures/r2-signer.js";
 import { createRunnerClient } from "./infrastructures/runner-client.js";
 import { createAdminRepository } from "./repositories/admin-repository.js";
+import { createAccountRepository } from "./repositories/account-repository.js";
 import { createContestRepository } from "./repositories/contest-repository.js";
 import { createSubmissionRepository } from "./repositories/submission-repository.js";
 import { createAdminService } from "./services/admin-service.js";
+import { createAccountService } from "./services/account-service.js";
 import { createBenchmarkWorkerService } from "./services/benchmark-worker-service.js";
 import { createContestService } from "./services/contest-service.js";
 import { createSubmissionQueryService } from "./services/submission-query-service.js";
@@ -23,12 +25,14 @@ const runner = await createRunnerClient(config);
 const contestRepository = createContestRepository(database);
 const submissionRepository = createSubmissionRepository(database);
 const administrationRepository = createAdminRepository(database);
+const accountRepository = createAccountRepository(database);
 const datasets = createR2Signer(config);
 const app = createApp({
   config,
   database,
   logger,
   contest: createContestService(contestRepository, datasets, config),
+  account: createAccountService(accountRepository),
   administration: createAdminService(
     administrationRepository,
     submissionRepository,

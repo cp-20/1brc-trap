@@ -136,7 +136,7 @@ services:
           path: ./apps/runner
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
-          path: ./packages/contracts
+          path: ./packages/domain
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
           path: ./infra/docker/benchmark-host.Dockerfile
@@ -187,7 +187,7 @@ services:
           path: ./apps/web
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
-          path: ./packages/contracts
+          path: ./packages/domain
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
           path: ./infra/docker/app.Dockerfile

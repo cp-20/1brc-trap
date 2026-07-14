@@ -1,4 +1,4 @@
-import type { Language } from "@1brc/contracts";
+import type { Language } from "@1brc/domain";
 
 export type SubmissionDraft = {
   executionKind: "typescript" | "javascript" | "bun" | "ruby" | "native";

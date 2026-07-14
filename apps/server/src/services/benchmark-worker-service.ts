@@ -1,5 +1,6 @@
-import type { BenchmarkResult, ExecutionKind, Language } from "@1brc/contracts";
+import type { BenchmarkResult, ExecutionKind, Language } from "@1brc/domain";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
+import { ok } from "neverthrow";
 import type { Config } from "../infrastructures/config.js";
 import type { Database } from "../infrastructures/database.js";
 import type { Logger } from "../infrastructures/logger.js";
@@ -87,11 +88,26 @@ export function createBenchmarkWorkerService(
 
   async function runLoop() {
     while (!stopping) {
-      await database.execute(
+      const heartbeat = await database.execute(
         "UPDATE contest_state SET worker_heartbeat_at = CURRENT_TIMESTAMP(6) WHERE singleton_id = 1",
       );
+      if (heartbeat.isErr()) {
+        logger.error("failed to update worker heartbeat", {
+          error: heartbeat.error.message,
+        });
+        await delay(2_000);
+        continue;
+      }
       await cleanupStaleUploads();
-      const job = await claimNext();
+      const claimed = await claimNext();
+      if (claimed.isErr()) {
+        logger.error("failed to claim queue", {
+          error: claimed.error.message,
+        });
+        await delay(2_000);
+        continue;
+      }
+      const job = claimed.value;
       if (!job) {
         await delay(2_000);
         continue;
@@ -107,14 +123,17 @@ export function createBenchmarkWorkerService(
           submissionId: job.id,
           error: result.error.message,
         });
-        await database.execute(
-          "UPDATE submissions SET status = 'infrastructure_error', infrastructure_error = ? WHERE id = ?",
-          [result.error.message.slice(0, 8192), job.id],
-        );
+        await persistInfrastructureFailure(job.id, result.error.message);
         continue;
       }
-      await storeResult(job, result.value.public, result.value.private);
-      await runner.cleanup(job.id);
+      await persistResult(job, result.value.public, result.value.private);
+      const cleaned = await runner.cleanup(job.id);
+      if (cleaned.isErr()) {
+        logger.warn("failed to clean runner artifact", {
+          submissionId: job.id,
+          error: cleaned.error.message,
+        });
+      }
       logger.info("benchmark completed", {
         submissionId: job.id,
         publicVerdict: result.value.public.verdict,
@@ -152,44 +171,44 @@ export function createBenchmarkWorkerService(
     const rows = await database.query<(RowDataPacket & { id: string })[]>(
       "SELECT id FROM submissions WHERE status = 'uploading' AND upload_started_at < CURRENT_TIMESTAMP(6) - INTERVAL 15 MINUTE",
     );
-    if (rows.isErr()) return;
+    if (rows.isErr()) {
+      logger.error("failed to find stale uploads", {
+        error: rows.error.message,
+      });
+      return;
+    }
     for (const row of rows.value) {
-      await runner.cleanup(row.id);
-      await database.execute(
+      const deleted = await database.execute(
         "DELETE FROM submissions WHERE id = ? AND status = 'uploading'",
         [row.id],
       );
+      if (deleted.isOk()) await runner.cleanup(row.id);
     }
   }
 
-  async function claimNext(): Promise<JobRow | null> {
-    const result = await database.transaction(async (connection) => {
+  function claimNext() {
+    return database.transaction(async (connection) => {
       const [rows] = await connection.query<JobRow[]>(
         `SELECT id, username, execution_kind, language
            FROM submissions WHERE status = 'queued'
           ORDER BY upload_started_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
       );
       const job = rows[0];
-      if (!job) return null;
+      if (!job) return ok(null);
       await connection.execute(
         "UPDATE submissions SET status = 'running', started_at = CURRENT_TIMESTAMP(6), infrastructure_error = NULL WHERE id = ?",
         [job.id],
       );
-      return job;
+      return ok(job);
     });
-    if (result.isErr()) {
-      logger.error("failed to claim queue", { error: result.error.message });
-      return null;
-    }
-    return result.value;
   }
 
-  async function storeResult(
+  function storeResult(
     job: JobRow,
     publicResult: BenchmarkResult,
     privateResult: BenchmarkResult | null,
   ) {
-    const result = await database.transaction(async (connection) => {
+    return database.transaction(async (connection) => {
       await connection.execute(
         "DELETE FROM benchmark_runs WHERE submission_id = ?",
         [job.id],
@@ -225,8 +244,39 @@ export function createBenchmarkWorkerService(
           [job.id, job.username],
         );
       }
+      return ok(undefined);
     });
-    if (result.isErr()) throw result.error;
+  }
+
+  async function persistInfrastructureFailure(id: string, message: string) {
+    while (!stopping) {
+      const result = await database.execute(
+        "UPDATE submissions SET status = 'infrastructure_error', infrastructure_error = ? WHERE id = ? AND status = 'running'",
+        [message.slice(0, 8192), id],
+      );
+      if (result.isOk()) return;
+      logger.error("failed to persist benchmark failure; retrying", {
+        submissionId: id,
+        error: result.error.message,
+      });
+      await delay(2_000);
+    }
+  }
+
+  async function persistResult(
+    job: JobRow,
+    publicResult: BenchmarkResult,
+    privateResult: BenchmarkResult | null,
+  ) {
+    while (!stopping) {
+      const stored = await storeResult(job, publicResult, privateResult);
+      if (stored.isOk()) return;
+      logger.error("failed to persist benchmark result; retrying", {
+        submissionId: job.id,
+        error: stored.error.message,
+      });
+      await delay(2_000);
+    }
   }
 }
 

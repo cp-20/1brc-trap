@@ -3,6 +3,7 @@ import mysql, {
   type PoolConnection,
   type RowDataPacket,
 } from "mysql2/promise";
+import type { Result } from "neverthrow";
 import { ResultAsync } from "neverthrow";
 import type { Config } from "./config.js";
 import { AppError } from "../utils/errors.js";
@@ -53,7 +54,11 @@ export function createDatabase(config: Config) {
           ),
       );
     },
-    transaction<T>(operation: (connection: PoolConnection) => Promise<T>) {
+    transaction<T>(
+      operation: (
+        connection: PoolConnection,
+      ) => PromiseLike<Result<T, AppError>>,
+    ) {
       return ResultAsync.fromPromise(
         withTransaction(pool, operation),
         (cause) =>
@@ -65,7 +70,7 @@ export function createDatabase(config: Config) {
                 "Database transaction failed",
                 cause,
               ),
-      );
+      ).andThen((result) => result);
     },
     close: () => pool.end(),
   };
@@ -73,12 +78,16 @@ export function createDatabase(config: Config) {
 
 async function withTransaction<T>(
   pool: Pool,
-  operation: (connection: PoolConnection) => Promise<T>,
-): Promise<T> {
+  operation: (connection: PoolConnection) => PromiseLike<Result<T, AppError>>,
+): Promise<Result<T, AppError>> {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const result = await operation(connection);
+    if (result.isErr()) {
+      await connection.rollback();
+      return result;
+    }
     await connection.commit();
     return result;
   } catch (error) {

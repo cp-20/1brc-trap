@@ -10,7 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@1brc/contracts": "workspace:*",
+    "@1brc/domain": "workspace:*",
     "@1brc/server": "workspace:*",
     "@formkit/auto-animate": "^0.10.0",
     "@number-flow/react": "^0.6.1",

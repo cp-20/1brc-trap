@@ -22,7 +22,7 @@
       "name": "@1brc/runner",
       "version": "0.0.0",
       "dependencies": {
-        "@1brc/contracts": "workspace:*",
+        "@1brc/domain": "workspace:*",
         "neverthrow": "^8.2.0",
         "zod": "^4.4.3",
       },
@@ -35,7 +35,7 @@
       "name": "@1brc/server",
       "version": "0.0.0",
       "dependencies": {
-        "@1brc/contracts": "workspace:*",
+        "@1brc/domain": "workspace:*",
         "@aws-sdk/client-s3": "^3.1084.0",
         "@aws-sdk/s3-request-presigner": "^3.1084.0",
         "@hono/zod-validator": "^0.8.0",
@@ -57,7 +57,7 @@
       "name": "@1brc/web",
       "version": "0.0.0",
       "dependencies": {
-        "@1brc/contracts": "workspace:*",
+        "@1brc/domain": "workspace:*",
         "@1brc/server": "workspace:*",
         "@formkit/auto-animate": "^0.10.0",
         "@number-flow/react": "^0.6.1",
@@ -99,8 +99,8 @@
         "vitest": "^4.1.10",
       },
     },
-    "packages/contracts": {
-      "name": "@1brc/contracts",
+    "packages/domain": {
+      "name": "@1brc/domain",
       "version": "0.0.0",
       "dependencies": {
         "zod": "^4.4.3",
@@ -113,7 +113,7 @@
   "packages": {
     "@1brc/cdk": ["@1brc/cdk@workspace:infra/cdk"],
 
-    "@1brc/contracts": ["@1brc/contracts@workspace:packages/contracts"],
+    "@1brc/domain": ["@1brc/domain@workspace:packages/domain"],
 
     "@1brc/mock-auth": ["@1brc/mock-auth@workspace:apps/mock-auth"],
 

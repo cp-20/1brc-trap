@@ -1,10 +1,12 @@
 import type { SSEStreamingApi } from "hono/streaming";
+import type { ResultAsync } from "neverthrow";
+import type { AppError } from "./errors.js";
 
 export async function streamJsonChanges<T>(
   stream: SSEStreamingApi,
   options: {
     event: string;
-    load: () => Promise<T>;
+    load: () => ResultAsync<T, AppError>;
     intervalMs?: number;
     heartbeatMs?: number;
   },
@@ -15,7 +17,20 @@ export async function streamJsonChanges<T>(
   let lastWriteAt = Date.now();
 
   while (!stream.closed && !stream.aborted) {
-    const data = JSON.stringify(await options.load());
+    const loaded = await options.load();
+    if (loaded.isErr()) {
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          error: {
+            code: loaded.error.code,
+            message: loaded.error.message,
+          },
+        }),
+      });
+      return;
+    }
+    const data = JSON.stringify(loaded.value);
     if (data !== previous) {
       previous = data;
       lastWriteAt = Date.now();

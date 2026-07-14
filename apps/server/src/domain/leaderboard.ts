@@ -1,4 +1,4 @@
-import type { LeaderboardEntry } from "@1brc/contracts";
+import type { LeaderboardEntry } from "@1brc/domain";
 
 export type LeaderboardRecord = {
   username: string;

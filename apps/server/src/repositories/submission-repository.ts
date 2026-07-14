@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ExecutionKind, Language } from "@1brc/contracts";
+import type { ExecutionKind, Language } from "@1brc/domain";
 import type { RowDataPacket } from "mysql2/promise";
+import { err, ok } from "neverthrow";
 import type { SourceRecord, SubmissionRecord } from "../domain/submission.js";
 import type { Config } from "../infrastructures/config.js";
 import type { Database } from "../infrastructures/database.js";
@@ -18,12 +19,9 @@ export type SubmissionRepository = ReturnType<
 
 export function createSubmissionRepository(database: Database) {
   return {
-    async reserve(
-      username: string,
-      config: Config,
-    ): Promise<SubmissionReservation> {
+    reserve(username: string, config: Config) {
       const id = randomUUID();
-      const result = await database.transaction(async (connection) => {
+      return database.transaction(async (connection) => {
         await connection.query(
           "SELECT singleton_id FROM contest_state WHERE singleton_id = 1 FOR UPDATE",
         );
@@ -41,84 +39,86 @@ export function createSubmissionRepository(database: Database) {
         );
         const clock = clockRows[0];
         if (!clock?.is_open)
-          throw new AppError(
-            "contest_closed",
-            "contest_closed",
-            "提出受付は終了しました",
+          return err(
+            new AppError(
+              "contest_closed",
+              "contest_closed",
+              "提出受付は終了しました",
+            ),
           );
         if (clock.now < config.CONTEST_START_AT)
-          throw new AppError(
-            "conflict",
-            "contest_not_started",
-            "コンテストはまだ始まっていません",
+          return err(
+            new AppError(
+              "conflict",
+              "contest_not_started",
+              "コンテストはまだ始まっていません",
+            ),
           );
         const [activeRows] = await connection.query<ActiveRow[]>(
           "SELECT COUNT(*) AS active_count FROM submissions WHERE username = ? AND status IN ('uploading', 'queued', 'running')",
           [username],
         );
         if (Number(activeRows[0]?.active_count ?? 0) > 0) {
-          throw new AppError(
-            "conflict",
-            "active_submission",
-            "アップロードまたは計測中の提出があります",
+          return err(
+            new AppError(
+              "conflict",
+              "active_submission",
+              "アップロードまたは計測中の提出があります",
+            ),
           );
         }
         await connection.execute(
           "INSERT INTO submissions (id, username, status, upload_started_at) VALUES (?, ?, 'uploading', ?)",
           [id, username, clock.now],
         );
-        return { id, uploadStartedAt: clock.now.toISOString() };
+        return ok({ id, uploadStartedAt: clock.now.toISOString() });
       });
-      if (result.isErr()) throw result.error;
-      return result.value;
     },
-    async storeSource(
-      id: string,
-      filename: string,
-      sha256: string,
-      content: Buffer,
-    ) {
-      const result = await database.execute(
-        "INSERT INTO submission_sources (submission_id, filename, sha256, content) VALUES (?, ?, ?, ?)",
-        [id, filename, sha256, content],
-      );
-      if (result.isErr()) throw result.error;
+    storeSource(id: string, filename: string, sha256: string, content: Buffer) {
+      return database
+        .execute(
+          "INSERT INTO submission_sources (submission_id, filename, sha256, content) VALUES (?, ?, ?, ?)",
+          [id, filename, sha256, content],
+        )
+        .map(() => undefined);
     },
-    async queueUpload(
+    queueUpload(
       id: string,
       executionKind: ExecutionKind,
       language: Language,
       sourceFilename: string,
       artifactSha256: string,
     ) {
-      const result = await database.execute(
-        `UPDATE submissions
+      return database
+        .execute(
+          `UPDATE submissions
            SET execution_kind = ?, language = ?, source_filename = ?, artifact_sha256 = ?,
                status = 'queued', queued_at = CURRENT_TIMESTAMP(6)
          WHERE id = ? AND status = 'uploading'`,
-        [executionKind, language, sourceFilename, artifactSha256, id],
-      );
-      if (result.isErr()) throw result.error;
-      if (
-        !("affectedRows" in result.value) ||
-        result.value.affectedRows !== 1
-      ) {
-        throw new AppError(
-          "conflict",
-          "upload_expired",
-          "アップロードの受付期限を超えました",
+          [executionKind, language, sourceFilename, artifactSha256, id],
+        )
+        .andThen((result) =>
+          "affectedRows" in result && result.affectedRows === 1
+            ? ok(undefined)
+            : err(
+                new AppError(
+                  "conflict",
+                  "upload_expired",
+                  "アップロードの受付期限を超えました",
+                ),
+              ),
         );
-      }
     },
-    async discardUpload(id: string) {
-      const result = await database.execute(
-        "DELETE FROM submissions WHERE id = ? AND status = 'uploading'",
-        [id],
-      );
-      if (result.isErr()) throw result.error;
+    discardUpload(id: string) {
+      return database
+        .execute(
+          "DELETE FROM submissions WHERE id = ? AND status = 'uploading'",
+          [id],
+        )
+        .map(() => undefined);
     },
-    async byUser(username: string) {
-      const result = await database.query<SubmissionRow[]>(
+    byUser(username: string) {
+      return database.query<SubmissionRow[]>(
         `SELECT s.*,
                 (SELECT COUNT(*) FROM submissions n
                   WHERE n.username = s.username AND n.status <> 'rejected'
@@ -137,66 +137,66 @@ export function createSubmissionRepository(database: Database) {
           ORDER BY s.upload_started_at DESC LIMIT 100`,
         [username],
       );
-      if (result.isErr()) throw result.error;
-      return result.value;
     },
-    async byId(id: string) {
-      const result = await database.query<SubmissionRow[]>(
-        "SELECT * FROM submissions WHERE id = ? LIMIT 1",
-        [id],
-      );
-      if (result.isErr()) throw result.error;
-      return result.value[0] ?? null;
+    byId(id: string) {
+      return database
+        .query<SubmissionRow[]>(
+          "SELECT * FROM submissions WHERE id = ? LIMIT 1",
+          [id],
+        )
+        .map((rows) => rows[0] ?? null);
     },
-    async source(id: string) {
-      const result = await database.query<SourceRow[]>(
-        `SELECT s.username, u.representative_submission_id, ss.filename, ss.content
+    source(id: string) {
+      return database
+        .query<SourceRow[]>(
+          `SELECT s.username, u.representative_submission_id, ss.filename, ss.content
            FROM submissions s JOIN users u ON u.username = s.username
            JOIN submission_sources ss ON ss.submission_id = s.id WHERE s.id = ? LIMIT 1`,
-        [id],
-      );
-      if (result.isErr()) throw result.error;
-      return result.value[0] ?? null;
+          [id],
+        )
+        .map((rows) => rows[0] ?? null);
     },
-    async all() {
-      const result = await database.query<SubmissionRow[]>(
+    all() {
+      return database.query<SubmissionRow[]>(
         "SELECT * FROM submissions WHERE status <> 'rejected' ORDER BY upload_started_at DESC LIMIT 500",
       );
-      if (result.isErr()) throw result.error;
-      return result.value;
     },
-    async retry(id: string) {
-      const result = await database.execute(
-        "UPDATE submissions SET status = 'queued', infrastructure_error = NULL WHERE id = ? AND status = 'infrastructure_error'",
-        [id],
-      );
-      if (result.isErr()) throw result.error;
-      return "affectedRows" in result.value && result.value.affectedRows === 1;
+    retry(id: string) {
+      return database
+        .execute(
+          "UPDATE submissions SET status = 'queued', infrastructure_error = NULL WHERE id = ? AND status = 'infrastructure_error'",
+          [id],
+        )
+        .map((result) => "affectedRows" in result && result.affectedRows === 1);
     },
-    async disqualify(id: string, reason: string) {
-      const result = await database.transaction(async (connection) => {
+    disqualify(id: string, reason: string) {
+      return database.transaction(async (connection) => {
         const [rows] = await connection.query<
           (RowDataPacket & { status: string })[]
         >("SELECT status FROM submissions WHERE id = ? FOR UPDATE", [id]);
         if (!rows[0])
-          throw new AppError(
-            "not_found",
-            "submission_not_found",
-            "提出が見つかりません",
+          return err(
+            new AppError(
+              "not_found",
+              "submission_not_found",
+              "提出が見つかりません",
+            ),
           );
         if (["uploading", "running"].includes(rows[0].status)) {
-          throw new AppError(
-            "conflict",
-            "submission_active",
-            "アップロード中または計測中の提出は完了後に失格にしてください",
+          return err(
+            new AppError(
+              "conflict",
+              "submission_active",
+              "アップロード中または計測中の提出は完了後に失格にしてください",
+            ),
           );
         }
         await connection.execute(
           "UPDATE submissions SET disqualified_reason = ?, status = 'disqualified' WHERE id = ?",
           [reason.slice(0, 8192), id],
         );
+        return ok(undefined);
       });
-      if (result.isErr()) throw result.error;
     },
   };
 }

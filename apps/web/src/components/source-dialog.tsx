@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import type { Language } from "@1brc/contracts";
+import type { Language } from "@1brc/domain";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { submissionGateway } from "../gateways/submission-gateway.js";

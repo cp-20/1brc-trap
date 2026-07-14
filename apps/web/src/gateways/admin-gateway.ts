@@ -1,4 +1,4 @@
-import type { DatasetManifest } from "@1brc/contracts";
+import type { DatasetManifest } from "@1brc/domain";
 import { rpc, rpcResult } from "./api-client.js";
 
 export const adminGateway = {

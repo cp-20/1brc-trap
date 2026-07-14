@@ -1,9 +1,9 @@
-import type { DatasetManifest } from "@1brc/contracts";
+import type { DatasetManifest } from "@1brc/domain";
+import { errAsync, ResultAsync } from "neverthrow";
 import type { Config } from "../infrastructures/config.js";
 import type { R2Signer } from "../infrastructures/r2-signer.js";
 import type { AdminRepository } from "../repositories/admin-repository.js";
 import type { SubmissionRepository } from "../repositories/submission-repository.js";
-import { issueAccessKey } from "../utils/crypto.js";
 import { AppError } from "../utils/errors.js";
 
 export type AdminService = ReturnType<typeof createAdminService>;
@@ -15,71 +15,84 @@ export function createAdminService(
   datasets: Pick<R2Signer, "verifyObject">,
 ) {
   return {
-    async issueAccessKey(username: string) {
-      const issued = issueAccessKey();
-      await administration.issueAccessKey(username, issued.hash, issued.prefix);
-      return { accessKey: issued.token, prefix: issued.prefix };
+    retrySubmission(admin: string, id: string) {
+      return submissions
+        .retry(id)
+        .andThen((retried) =>
+          retried
+            ? administration.audit(admin, "retry_submission", id)
+            : errAsync(
+                new AppError(
+                  "conflict",
+                  "retry_not_allowed",
+                  "再試行できる計測エラーの提出ではありません",
+                ),
+              ),
+        );
     },
-    revokeAccessKey: (username: string) =>
-      administration.revokeAccessKey(username),
-    async retrySubmission(admin: string, id: string) {
-      if (!(await submissions.retry(id))) {
-        throw new AppError(
-          "conflict",
-          "retry_not_allowed",
-          "再試行できる計測エラーの提出ではありません",
+    disqualifySubmission(admin: string, id: string, reason: string) {
+      if (!reason.trim()) {
+        return errAsync(
+          new AppError(
+            "bad_request",
+            "reason_required",
+            "失格理由を入力してください",
+          ),
         );
       }
-      await administration.audit(admin, "retry_submission", id);
+      return submissions.disqualify(id, reason).andThen(() =>
+        administration.audit(admin, "disqualify_submission", id, {
+          reason,
+        }),
+      );
     },
-    async disqualifySubmission(admin: string, id: string, reason: string) {
-      if (!reason.trim())
-        throw new AppError(
-          "bad_request",
-          "reason_required",
-          "失格理由を入力してください",
+    importDatasetManifest(admin: string, manifest: DatasetManifest) {
+      if (manifest.contestId !== config.CONTEST_ID) {
+        return errAsync(
+          new AppError(
+            "bad_request",
+            "contest_id_mismatch",
+            "マニフェストのコンテストIDが一致しません",
+          ),
         );
-      await submissions.disqualify(id, reason);
-      await administration.audit(admin, "disqualify_submission", id, {
-        reason,
-      });
-    },
-    async importDatasetManifest(admin: string, manifest: DatasetManifest) {
-      if (manifest.contestId !== config.CONTEST_ID)
-        throw new AppError(
-          "bad_request",
-          "contest_id_mismatch",
-          "マニフェストのコンテストIDが一致しません",
-        );
-      for (const artifact of manifest.artifacts) {
-        if (!artifact.isPublic) continue;
-        const verified = await datasets.verifyObject(artifact.objectKey);
-        if (verified.isErr()) throw verified.error;
       }
-      await administration.importDatasetManifest(manifest, config);
-      await administration.audit(
-        admin,
-        "import_dataset_manifest",
-        manifest.contestId,
-        { artifacts: manifest.artifacts.length },
-      );
-      return manifest.artifacts.length;
+      return ResultAsync.combine(
+        manifest.artifacts
+          .filter((artifact) => artifact.isPublic)
+          .map((artifact) => datasets.verifyObject(artifact.objectKey)),
+      )
+        .andThen(() => administration.importDatasetManifest(manifest))
+        .andThen(() =>
+          administration.audit(
+            admin,
+            "import_dataset_manifest",
+            manifest.contestId,
+            { artifacts: manifest.artifacts.length },
+          ),
+        )
+        .map(() => manifest.artifacts.length);
     },
-    async publishPrivateResults(admin: string) {
-      await administration.publishPrivateResults(config);
-      await administration.audit(
-        admin,
-        "publish_private_leaderboard",
-        config.CONTEST_ID,
-      );
+    publishPrivateResults(admin: string) {
+      return administration
+        .publishPrivateResults(config.CONTEST_END_AT)
+        .andThen(() =>
+          administration.audit(
+            admin,
+            "publish_private_leaderboard",
+            config.CONTEST_ID,
+          ),
+        );
     },
-    async unpublishPrivateResults(admin: string) {
-      await administration.unpublishPrivateResults();
-      await administration.audit(
-        admin,
-        "unpublish_private_leaderboard",
-        config.CONTEST_ID,
-      );
+    unpublishPrivateResults(admin: string) {
+      return administration
+        .unpublishPrivateResults()
+        .andThen(() =>
+          administration.audit(
+            admin,
+            "unpublish_private_leaderboard",
+            config.CONTEST_ID,
+          ),
+        );
     },
   };
 }

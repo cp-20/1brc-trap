@@ -1,8 +1,28 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 
-const [kind, artifact, input, output, timeoutText] = process.argv.slice(2);
+const [
+  kind,
+  artifact,
+  input,
+  output,
+  timeoutText,
+  stdioLimitText,
+  outputLimitText,
+] = process.argv.slice(2);
 const timeoutMs = Number(timeoutText) * 1000;
+const stdioLimitBytes = Number(stdioLimitText);
+const outputLimitBytes = Number(outputLimitText);
+if (
+  !Number.isFinite(timeoutMs) ||
+  timeoutMs <= 0 ||
+  !Number.isSafeInteger(stdioLimitBytes) ||
+  stdioLimitBytes <= 0 ||
+  !Number.isSafeInteger(outputLimitBytes) ||
+  outputLimitBytes <= 0
+) {
+  throw new Error("invalid benchmark limits");
+}
 const commands = {
   native: [artifact, [input, output]],
   javascript: ["/opt/node/bin/node", [artifact, input, output]],
@@ -30,7 +50,7 @@ let stderr = "";
 let spawnError = null;
 child.stdout.on("data", (chunk) => {
   captured += chunk.length;
-  if (captured > 1024 * 1024) {
+  if (captured > stdioLimitBytes) {
     outputExceeded = true;
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -40,7 +60,7 @@ child.stdout.on("data", (chunk) => {
 child.stderr.on("data", (chunk) => {
   captured += chunk.length;
   stderr = `${stderr}${chunk.toString("utf8")}`.slice(-8192);
-  if (captured > 1024 * 1024) {
+  if (captured > stdioLimitBytes) {
     outputExceeded = true;
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -58,7 +78,7 @@ const outputWatcher = setInterval(async () => {
   if (checkingOutput || outputExceeded) return;
   checkingOutput = true;
   try {
-    if ((await stat(output)).size > 256 * 1024 * 1024) {
+    if ((await stat(output)).size > outputLimitBytes) {
       outputExceeded = true;
       try {
         process.kill(-child.pid, "SIGKILL");
@@ -85,7 +105,7 @@ else if (outputExceeded) verdict = "output_limit";
 else if (result.code !== 0) verdict = "runtime_error";
 else {
   try {
-    if ((await stat(output)).size > 256 * 1024 * 1024) verdict = "output_limit";
+    if ((await stat(output)).size > outputLimitBytes) verdict = "output_limit";
   } catch {
     verdict = "runtime_error";
     error = "出力ファイルが作成されませんでした";

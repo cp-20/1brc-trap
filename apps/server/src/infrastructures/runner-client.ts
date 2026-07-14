@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import { Client, type ConnectConfig } from "ssh2";
 import { ResultAsync } from "neverthrow";
 import pRetry from "p-retry";
-import type { BenchmarkResult, ExecutionKind, Language } from "@1brc/contracts";
+import {
+  benchmarkPolicy,
+  type BenchmarkResult,
+  type ExecutionKind,
+  type Language,
+} from "@1brc/domain";
 import type { Config } from "./config.js";
 import { AppError } from "../utils/errors.js";
 
@@ -13,8 +18,6 @@ export type RunnerJobResult = {
   private: BenchmarkResult | null;
   environmentId: string;
 };
-
-export type RunnerEnvironment = { cpu: string; memory: string };
 
 export interface RunnerClient {
   upload(
@@ -29,13 +32,11 @@ export interface RunnerClient {
     language: Language,
   ): ResultAsync<RunnerJobResult, AppError>;
   cleanup(submissionId: string): ResultAsync<void, AppError>;
-  environment(): ResultAsync<RunnerEnvironment, AppError>;
 }
 
 export async function createRunnerClient(
   config: Config,
 ): Promise<RunnerClient> {
-  let cachedEnvironment: RunnerEnvironment | undefined;
   const privateKey = config.RUNNER_SSH_PRIVATE_KEY_BASE64
     ? Buffer.from(config.RUNNER_SSH_PRIVATE_KEY_BASE64, "base64").toString(
         "utf8",
@@ -73,7 +74,9 @@ export async function createRunnerClient(
         exec(
           connection,
           `run ${submissionId} ${kind} ${language}`,
-          95 * 60_000,
+          (benchmarkPolicy.repetitions * 2 * benchmarkPolicy.timeoutSeconds +
+            5 * 60) *
+            1000,
         ).then((output) => {
           const parsed = JSON.parse(output) as RunnerJobResult;
           if (parsed.environmentId !== config.BENCHMARK_ENVIRONMENT_ID) {
@@ -91,18 +94,6 @@ export async function createRunnerClient(
         exec(connection, `cleanup ${submissionId}`, 30_000).then(
           () => undefined,
         ),
-        runnerError,
-      );
-    },
-    environment() {
-      return ResultAsync.fromPromise(
-        cachedEnvironment
-          ? Promise.resolve(cachedEnvironment)
-          : exec(connection, "environment", 30_000).then((output) => {
-              const parsed = JSON.parse(output) as RunnerEnvironment;
-              cachedEnvironment = parsed;
-              return parsed;
-            }),
         runnerError,
       );
     },

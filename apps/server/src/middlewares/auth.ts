@@ -3,6 +3,7 @@ import type { MiddlewareHandler } from "hono";
 import type { RowDataPacket } from "mysql2";
 import type { Config } from "../infrastructures/config.js";
 import type { Database } from "../infrastructures/database.js";
+import { errorResponse } from "../routers/router-context.js";
 import { sha256 } from "../utils/crypto.js";
 
 export type AuthUser = {
@@ -38,7 +39,7 @@ export function authMiddleware(
         "SELECT username, token_hash FROM api_tokens WHERE token_hash = ? LIMIT 1",
         [digest],
       );
-      if (result.isErr()) throw result.error;
+      if (result.isErr()) return errorResponse(context, result.error);
       if (
         result.value[0] &&
         timingSafeEqual(result.value[0].token_hash, digest)
@@ -62,9 +63,11 @@ export function authMiddleware(
     }
 
     if (authUser) {
-      await database.execute("INSERT IGNORE INTO users (username) VALUES (?)", [
-        authUser.username,
-      ]);
+      const inserted = await database.execute(
+        "INSERT IGNORE INTO users (username) VALUES (?)",
+        [authUser.username],
+      );
+      if (inserted.isErr()) return errorResponse(context, inserted.error);
     }
     context.set("authUser", authUser);
     await next();

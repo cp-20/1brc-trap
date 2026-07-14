@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { submissionPolicy } from "@1brc/domain";
 import { Copy, KeyRound, Send, Terminal, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SourcePreview } from "../source-preview.js";
@@ -12,6 +13,7 @@ import {
   sourceAccept,
 } from "../../models/submission-options.js";
 import styles from "../../pages/submit-page.module.css";
+import { formatBytes } from "../../utils/format.js";
 import { CopyableCode, FileField, StepHeading } from "./submit-step.js";
 
 type SubmitMethod = "browser" | "cli";
@@ -81,14 +83,14 @@ export function SubmissionMethodStep({
           >
             <FileField
               label="ソースコード"
-              detail="UTF-8・1 MiB以下"
+              detail={`UTF-8・${formatBytes(submissionPolicy.sourceLimitBytes)}以下`}
               {...(acceptedSource ? { accept: acceptedSource } : {})}
               onChange={(source) => update({ source })}
             />
             {draft.executionKind === "native" && (
               <FileField
                 label="実行ファイル"
-                detail="Linux x86_64 ELF・64 MiB以下"
+                detail={`Linux x86_64 ELF・${formatBytes(submissionPolicy.binaryLimitBytes)}以下`}
                 onChange={(binary) => update({ binary })}
               />
             )}

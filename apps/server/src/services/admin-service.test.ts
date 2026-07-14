@@ -1,4 +1,4 @@
-import type { DatasetManifest } from "@1brc/contracts";
+import type { DatasetManifest } from "@1brc/domain";
 import { errAsync, okAsync } from "neverthrow";
 import { describe, expect, it, vi } from "vitest";
 import type { Config } from "../infrastructures/config.js";
@@ -10,42 +10,34 @@ import { createAdminService } from "./admin-service.js";
 
 describe("dataset manifest import", () => {
   it("公開オブジェクトを確認してから取込完了件数を返す", async () => {
-    const importDatasetManifest = vi.fn(async () => undefined);
-    const audit = vi.fn(async () => undefined);
+    const importDatasetManifest = vi.fn(() => okAsync(undefined));
+    const audit = vi.fn(() => okAsync(undefined));
     const verifyObject = vi.fn(() => okAsync(undefined));
     const service = createService(
       { importDatasetManifest, audit },
       verifyObject,
     );
 
-    await expect(
-      service.importDatasetManifest("admin", manifest),
-    ).resolves.toBe(2);
-    expect(verifyObject).toHaveBeenCalledOnce();
-    expect(verifyObject).toHaveBeenCalledWith(
-      "datasets/contest/public/input.csv.zst",
-    );
-    expect(importDatasetManifest).toHaveBeenCalledWith(
-      manifest,
-      expect.objectContaining({ CONTEST_ID: "contest" }),
-    );
+    const result = await service.importDatasetManifest("admin", manifest);
+    expect(result.isOk() && result.value).toBe(4);
+    expect(verifyObject).toHaveBeenCalledTimes(2);
+    expect(importDatasetManifest).toHaveBeenCalledWith(manifest);
   });
 
   it("R2で公開オブジェクトを確認できなければ取り込まない", async () => {
-    const importDatasetManifest = vi.fn(async () => undefined);
+    const importDatasetManifest = vi.fn(() => okAsync(undefined));
     const failure = new AppError(
       "infrastructure",
       "r2_object_unavailable",
       "R2上の公開データを確認できません",
     );
     const service = createService(
-      { importDatasetManifest, audit: vi.fn(async () => undefined) },
+      { importDatasetManifest, audit: vi.fn(() => okAsync(undefined)) },
       vi.fn(() => errAsync(failure)),
     );
 
-    await expect(service.importDatasetManifest("admin", manifest)).rejects.toBe(
-      failure,
-    );
+    const result = await service.importDatasetManifest("admin", manifest);
+    expect(result.isErr() && result.error).toBe(failure);
     expect(importDatasetManifest).not.toHaveBeenCalled();
   });
 });
@@ -56,15 +48,42 @@ const manifest: DatasetManifest = {
   generatedAt: "2026-07-14T00:00:00.000Z",
   generatorRevision: "test",
   artifacts: [
-    artifact("public-input", "datasets/contest/public/input.csv.zst", true),
-    artifact("private-input", "datasets/contest/private/input.csv.zst", false),
+    artifact(
+      "public-small-input",
+      "input",
+      "datasets/contest/public/input.csv.zst",
+      true,
+    ),
+    artifact(
+      "public-small-expected",
+      "expected",
+      "datasets/contest/public/expected.zst",
+      true,
+    ),
+    artifact(
+      "private-full-input",
+      "input",
+      "datasets/contest/private/input.csv.zst",
+      false,
+    ),
+    artifact(
+      "private-full-expected",
+      "expected",
+      "datasets/contest/private/expected.zst",
+      false,
+    ),
   ],
 };
 
-function artifact(id: string, objectKey: string, isPublic: boolean) {
+function artifact(
+  id: string,
+  kind: "input" | "expected",
+  objectKey: string,
+  isPublic: boolean,
+) {
   return {
     id,
-    kind: "input" as const,
+    kind,
     label: id,
     objectKey,
     rows: 1,

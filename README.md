@@ -58,10 +58,10 @@ docker compose watch
 主要なディレクトリは次のとおりです。
 
 - `apps/web`：ReactとViteで構成したフロントエンド
-- `apps/server`：Hono API、worker、migration
+- `apps/server`：Hono API（RPC型のSSoT）、worker、migration
 - `apps/runner`：forced-command SSH gatewayとDocker計測処理
 - `apps/mock-auth`：ローカル用認証proxy
-- `packages/contracts`：Hono RPCとZodの共有contract
+- `packages/domain`：実行種別・制限値・dataset manifestなどの共有ドメイン
 - `cmd/contest_data`：コンテストデータ操作のCLI
 - `internal/contestdata`、`internal/traqdata`、`internal/expected`：データセット生成
 - `internal/r2`：R2へのupload、download、presign

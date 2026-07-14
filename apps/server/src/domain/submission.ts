@@ -3,7 +3,7 @@ import type {
   Language,
   SubmissionStatus,
   Verdict,
-} from "@1brc/contracts";
+} from "@1brc/domain";
 
 export type SubmissionRecord = {
   id: string;

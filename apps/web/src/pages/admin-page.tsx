@@ -1,4 +1,4 @@
-import { datasetManifestSchema } from "@1brc/contracts";
+import { datasetManifestSchema } from "@1brc/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {

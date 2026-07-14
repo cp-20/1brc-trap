@@ -1,4 +1,5 @@
 import { Download } from "lucide-react";
+import { submissionPolicy } from "@1brc/domain";
 import { contestGateway } from "../../gateways/contest-gateway.js";
 import { formatBytes } from "../../utils/format.js";
 import styles from "../../pages/contest-page.module.css";
@@ -40,7 +41,7 @@ export function ContestDocument({
       <article className={styles.body}>
         <OverviewSection />
         <InputOutputSection datasets={datasets} datasetsError={datasetsError} />
-        <ScoringSection />
+        <ScoringSection environment={environment} />
         <EnvironmentSection environment={environment} />
         <SubmissionRulesSection />
       </article>
@@ -184,7 +185,11 @@ function FieldTable({ fields }: { fields: [string, string][] }) {
   );
 }
 
-function ScoringSection() {
+function ScoringSection({
+  environment,
+}: {
+  environment: Contest["environment"];
+}) {
   return (
     <section id="scoring" className={styles.section}>
       <p className={styles.number}>03</p>
@@ -195,7 +200,11 @@ function ScoringSection() {
           <div>
             <strong>Public計測</strong>
             <p>
-              公開データを使い、新しいプロセスで最大3回実行します。各回の出力が正しい場合、初回が60秒を超えたときは2回目以降を省略して初回の実行時間をPublic結果とし、それ以外は3回の中央値を使用します。
+              公開データを使い、新しいプロセスで最大
+              {environment.repetitions}
+              回実行します。各回の出力が正しい場合、初回が
+              {environment.slowFirstAttemptSeconds}
+              秒を超えたときは2回目以降を省略して初回の実行時間をPublic結果とし、それ以外は中央値を使用します。
             </p>
           </div>
         </li>
@@ -213,7 +222,11 @@ function ScoringSection() {
           <div>
             <strong>Private計測</strong>
             <p>
-              Publicで正解した同じ提出を非公開データでも最大3回計測します。Publicと同様に、初回が60秒を超えた場合は2回目以降を省略します。結果はコンテスト終了後に公開します。
+              Publicで正解した同じ提出を非公開データでも最大
+              {environment.repetitions}
+              回計測します。Publicと同様に、初回が
+              {environment.slowFirstAttemptSeconds}
+              秒を超えた場合は2回目以降を省略します。結果はコンテスト終了後に公開します。
             </p>
           </div>
         </li>
@@ -221,8 +234,13 @@ function ScoringSection() {
       <div className={styles.attention}>
         <strong>実行時の注意</strong>
         <ul>
-          <li>標準出力・標準エラーは合計1 MiBまでです。</li>
-          <li>出力ファイルは256 MiBまでです。</li>
+          <li>
+            標準出力・標準エラーは合計
+            {formatBytes(environment.stdioLimitBytes)}までです。
+          </li>
+          <li>
+            出力ファイルは{formatBytes(environment.outputLimitBytes)}までです。
+          </li>
           <li>ネットワークは無効で、実行環境は読み取り専用です。</li>
           <li>リーダーボードには各ユーザーの最新の正解提出が載ります。</li>
         </ul>
@@ -292,9 +310,15 @@ function SubmissionRulesSection() {
         <div>
           <h3>ファイル</h3>
           <ul>
-            <li>ソースコードはUTF-8、NULなし、1 MiB以下の単一ファイル</li>
+            <li>
+              ソースコードはUTF-8、NULなし、
+              {formatBytes(submissionPolicy.sourceLimitBytes)}以下の単一ファイル
+            </li>
             <li>NativeはUbuntu 26.04 x86_64で動くELF実行ファイルも必要</li>
-            <li>Native実行ファイルは64 MiB以下</li>
+            <li>
+              Native実行ファイルは
+              {formatBytes(submissionPolicy.binaryLimitBytes)}以下
+            </li>
           </ul>
         </div>
         <div>

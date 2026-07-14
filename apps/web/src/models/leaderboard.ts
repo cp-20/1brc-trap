@@ -1,1 +1,1 @@
-export type { LeaderboardEntry } from "@1brc/contracts";
+export type { LeaderboardEntry } from "@1brc/domain";
