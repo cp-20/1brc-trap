@@ -180,7 +180,7 @@ export function createSubmissionRepository(database: Database) {
           .select({
             ...getTableColumns(submissions),
             submission_number: sql<number>`(
-              SELECT COUNT(*) FROM ${prior}
+              SELECT COUNT(*) FROM ${submissions} AS ${prior}
                WHERE ${and(
                  eq(prior.username, submissions.username),
                  ne(prior.status, "rejected"),
@@ -192,10 +192,10 @@ export function createSubmissionRepository(database: Database) {
                    ),
                  ),
                )}
-            )`,
+            )`.mapWith(Number),
             queue_ahead: sql<number | null>`CASE
               WHEN ${submissions.status} = 'queued' THEN (
-                SELECT COUNT(*) FROM ${queued}
+                SELECT COUNT(*) FROM ${submissions} AS ${queued}
                  WHERE ${or(
                    eq(queued.status, "running"),
                    and(
@@ -215,7 +215,7 @@ export function createSubmissionRepository(database: Database) {
                      ),
                    ),
                  )}
-              ) ELSE NULL END`,
+              ) ELSE NULL END`.mapWith(Number),
           })
           .from(submissions)
           .where(

@@ -103,6 +103,39 @@ describe("submission reservation", () => {
   });
 });
 
+describe("submission history", () => {
+  it("提出番号と待ち人数を取得する", async () => {
+    await database.orm.insert(users).values({ username: "user" });
+    await database.orm.insert(submissions).values([
+      {
+        id: "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "user",
+        status: "running",
+        upload_started_at: new Date("2026-07-17T00:00:00Z"),
+      },
+      {
+        id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "user",
+        status: "queued",
+        upload_started_at: new Date("2026-07-17T00:01:00Z"),
+      },
+    ]);
+
+    const result = await createSubmissionRepository(database).byUser("user");
+
+    expect(result.isOk()).toBe(true);
+    expect(
+      result._unsafeUnwrap().map(({ submission_number, queue_ahead }) => ({
+        submission_number,
+        queue_ahead,
+      })),
+    ).toEqual([
+      { submission_number: 2, queue_ahead: 1 },
+      { submission_number: 1, queue_ahead: null },
+    ]);
+  });
+});
+
 describe("private result publication", () => {
   it("publish/unpublishは公開状態だけを変更し、提出ソースを保持する", async () => {
     await completedSubmission("user", "0198d9ec-9024-4d69-8bb8-9c13a73f6768");
