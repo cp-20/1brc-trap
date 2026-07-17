@@ -72,11 +72,12 @@ export function createApp(dependencies: AppDependencies) {
     await next();
     context.header("X-Request-Id", context.get("requestId"));
   });
-  app.use("*", secureHeaders());
   app.use("/og.png", async (context, next) => {
     await next();
     context.header("Access-Control-Allow-Origin", "*");
+    context.header("Cross-Origin-Resource-Policy", "cross-origin");
   });
+  app.use("*", secureHeaders());
   app.use(
     "/api/*",
     authMiddleware(dependencies.authentication, dependencies.config),
