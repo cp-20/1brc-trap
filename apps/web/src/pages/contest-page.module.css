@@ -183,6 +183,51 @@
   font-size: 13px;
 }
 
+.guarantees {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  overflow: hidden;
+  margin: 14px 0 28px;
+  padding: 1px;
+  border-radius: 5px;
+  background: #303b48;
+  list-style: none;
+}
+
+.guarantees li {
+  position: relative;
+  padding: 13px 15px 13px 42px;
+  background: #151c25;
+  color: #b8c5d1;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.guarantees li::before {
+  position: absolute;
+  top: 14px;
+  left: 15px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  border: 1px solid #39748d;
+  border-radius: 50%;
+  color: #8fe3ff;
+  content: "✓";
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  place-items: center;
+}
+
+.guarantees code {
+  color: #9de4ff;
+  font-size: 0.92em;
+  display: inline-block;
+  margin: 0 2px;
+}
+
 .subsection {
   margin-top: 18px;
   padding-top: 1px;
@@ -412,6 +457,200 @@
   font-size: 13px;
 }
 
+.optimizationCycle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 22px 0;
+  padding: 0;
+  border: 1px solid #303b48;
+  background: #151c25;
+  list-style: none;
+}
+
+.optimizationCycle li {
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.optimizationCycle li + li {
+  border-left: 1px solid #303b48;
+}
+
+.optimizationCycle strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #8edfff;
+}
+
+.benchmarkGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  margin-top: 18px;
+  border: 1px solid #303b48;
+  border-radius: 5px;
+}
+
+.benchmarkGrid > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-right: 1px solid #303b48;
+}
+
+.benchmarkGrid > div:last-child {
+  border-right: 0;
+}
+
+.benchmarkGrid span {
+  color: #8293a3;
+  font-size: 10px;
+}
+
+.benchmarkGrid strong {
+  color: #e3edf5;
+  font-size: 14px;
+}
+
+.bottleneck {
+  margin-top: 16px;
+  padding: 13px 15px;
+  background: #111820;
+}
+
+.bottleneck h3 {
+  margin: 0 0 5px;
+  color: #dce7ef;
+  font-size: 14px;
+}
+
+.bottleneck p {
+  margin: 0;
+  color: #9faebb;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.bottleneck dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding-top: 11px;
+  border-top: 1px solid #293440;
+  font-size: 13px;
+}
+
+.bottleneck dt {
+  color: #8293a3;
+}
+
+.bottleneck dd {
+  margin: 0;
+  color: #8edfff;
+  font-weight: 650;
+}
+
+.stageLessons {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 19px;
+  color: #becad5;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.diffSection {
+  margin-top: 25px;
+}
+
+.diffSection > p {
+  margin: 0;
+  color: #abb8c5;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.diffBlock {
+  overflow-x: auto;
+  margin: 11px 0 0;
+  padding: 11px 0;
+  border: 1px solid #2e3945;
+  border-radius: 5px;
+  background: #10161e;
+  color: #c8d6e2;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.diffBlock code,
+.diffBlock span {
+  display: block;
+  min-width: max-content;
+}
+
+.diffBlock span {
+  padding: 0 13px;
+}
+
+.diffAdded {
+  background: rgb(46 160 67 / 17%);
+  color: #a7e8b2;
+}
+
+.diffRemoved {
+  background: rgb(248 81 73 / 15%);
+  color: #f0aaa6;
+}
+
+.sourceDetails {
+  margin-top: 27px;
+  border: 1px solid #303b48;
+  border-radius: 5px;
+  background: #111820;
+}
+
+.sourceDetails summary {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 15px;
+  color: #dce7ef;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sourceDetails summary::before {
+  color: #20beff;
+  content: "›";
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.sourceDetails[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.sourceDetails summary code {
+  color: #8294a4;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.guideSource {
+  max-height: 620px;
+  margin: 0 !important;
+  border: 0 !important;
+  border-top: 1px solid #303b48 !important;
+  border-radius: 0 !important;
+}
+
 .loadingState {
   display: grid;
   min-height: 120px;
@@ -454,6 +693,10 @@
 }
 
 @media (max-width: 720px) {
+  .guarantees {
+    grid-template-columns: 1fr;
+  }
+
   .ruleColumns,
   .taskFlow {
     grid-template-columns: 1fr;
@@ -479,5 +722,23 @@
 
   .libraries {
     grid-template-columns: 1fr;
+  }
+
+  .benchmarkGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .optimizationCycle {
+    grid-template-columns: 1fr;
+  }
+
+  .optimizationCycle li + li {
+    border-top: 1px solid #303b48;
+    border-left: 0;
+  }
+
+  .benchmarkGrid > div:not(:last-child) {
+    border-right: 0;
+    border-bottom: 1px solid #303b48;
   }
 }

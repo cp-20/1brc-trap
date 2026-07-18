@@ -94,9 +94,7 @@ function InputOutputSection({
       <CodeBlock lang="shellscript">$ ./program input.csv output.txt</CodeBlock>
 
       <h3>入力フォーマット</h3>
-      <p>
-        1行が1メッセージです。時刻はUnix秒です。
-      </p>
+      <p>1行が1メッセージです。時刻はUnix秒です。</p>
       <CodeBlock>
         unix_timestamp,channel_path,message_length,stamp_count
       </CodeBlock>
@@ -110,7 +108,7 @@ function InputOutputSection({
       />
 
       <h3>入力データの保証</h3>
-      <ul>
+      <ul className={styles.guarantees}>
         <li>
           CSVはASCIIで、引用符、エスケープ、フィールド内のカンマや改行を含みません。
         </li>
@@ -119,11 +117,15 @@ function InputOutputSection({
         <li>
           行は時刻順やチャンネル順に並んでいません。並び順は仮定できません。
         </li>
-        <li>投稿時刻 (<code>unix_timestamp</code>) は2027年の1月1日から2027年12月31日までの範囲です。</li>
+        <li>
+          投稿時刻 (<code>unix_timestamp</code>) は2027年の1月1日から2027年12月31日までの範囲です。
+        </li>
         <li>
           メッセージ長 (<code>message_length</code>) は1以上の整数です。
         </li>
-        <li>チャンネル (<code>channel_path</code>) は最大10,000種類です。</li>
+        <li>
+          チャンネル (<code>channel_path</code>) は最大10,000種類です。
+        </li>
         <li>
           チャンネルと月ごとの<code>message_count</code>、
           <code>total_length</code>、<code>total_stamp_count</code>
