@@ -125,7 +125,9 @@ function InputOutputSection({
           メッセージ長 (<code>message_length</code>) は1以上の整数です。
         </li>
         <li>
-          チャンネル (<code>channel_path</code>) は最大10,000種類です。
+          チャンネルパス (<code>channel_path</code>) は<code>/</code>
+          区切りの1階層以上5階層以下で、各階層は1文字以上32文字以下です。
+          チャンネルパスは最大10,000種類です。
         </li>
         <li>
           チャンネルと月ごとの<code>message_count</code>、
