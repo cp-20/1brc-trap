@@ -55,6 +55,7 @@ RUN bun run --filter @1brc/web build
 FROM bun-base
 RUN groupadd --system --gid 10001 onebrc && useradd --system --uid 10001 --gid onebrc --home /app onebrc
 WORKDIR /app
+COPY --chmod=0755 infra/docker/app-entrypoint /usr/local/bin/app-entrypoint
 COPY --from=production-dependencies --chown=onebrc:onebrc /app /app
 COPY --from=backend-builder --chown=onebrc:onebrc /app/packages/domain/src ./packages/domain/src
 COPY --from=backend-builder --chown=onebrc:onebrc /app/apps/mock-auth/dist ./apps/mock-auth/dist
@@ -63,5 +64,6 @@ COPY --from=backend-builder --chown=onebrc:onebrc /app/apps/server/migrations ./
 COPY --from=web-builder --chown=onebrc:onebrc /app/apps/web/dist ./apps/web/dist
 ENV NODE_ENV=production STATIC_ROOT=/app/apps/web/dist
 USER onebrc
-EXPOSE 3000
+EXPOSE 3000 6499
+ENTRYPOINT ["/usr/local/bin/app-entrypoint"]
 CMD ["/opt/bun/bin/bun", "/app/apps/server/dist/index.js"]

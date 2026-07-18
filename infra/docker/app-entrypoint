@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${PROFILING_SECRET:-}" ]; then
+  exec "$@"
+fi
+
+case "$PROFILING_SECRET" in
+  *[!A-Za-z0-9_-]*)
+    echo "PROFILING_SECRET must contain only A-Z, a-z, 0-9, _ and -" >&2
+    exit 1
+    ;;
+esac
+if [ "${#PROFILING_SECRET}" -lt 32 ]; then
+  echo "PROFILING_SECRET must be at least 32 characters" >&2
+  exit 1
+fi
+
+profiling_port=${PROFILING_PORT:-6499}
+case "$profiling_port" in
+  ''|*[!0-9]*)
+    echo "PROFILING_PORT must be an integer between 1 and 65535" >&2
+    exit 1
+    ;;
+esac
+if [ "$profiling_port" -lt 1 ] || [ "$profiling_port" -gt 65535 ]; then
+  echo "PROFILING_PORT must be an integer between 1 and 65535" >&2
+  exit 1
+fi
+
+runtime=$1
+shift
+exec "$runtime" "--inspect=0.0.0.0:$profiling_port/$PROFILING_SECRET" "$@"
