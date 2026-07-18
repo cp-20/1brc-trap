@@ -126,7 +126,7 @@ function InputOutputSection({
         </li>
         <li>
           チャンネルパス (<code>channel_path</code>) は<code>/</code>
-          区切りの1階層以上5階層以下で、各階層は1文字以上32文字以下です。
+          区切りの1階層以上5階層以下で、各階層は1文字以上20文字以下です。
           チャンネルパスは最大10,000種類です。
         </li>
         <li>
