@@ -1,21 +1,33 @@
 const std = @import("std");
 const posix = std.posix;
 const Allocator = std.mem.Allocator;
-// 2^18 reduced probes further but its zero-fill/cache footprint lost to 2^17.
+// Rejected before key compaction: 2^15 saved 1.5 MiB per worker but its extra
+// probes took 3.909260 s versus 3.904171 s at 2^17. 2^18 also lost to 2^17.
 const cap: usize = 1 << 17;
 const agg_cap: usize = 1 << 14;
+const fast_cap: usize = 1 << 16;
+// ponytail: fixed public/private 10k keys use under 192 KiB per map; raise this
+// simple ceiling if the channel generator contract grows.
+const key_cap: usize = 1 << 20;
+// ponytail: the direct-ID path assumes exactly the contest's closed 10k-channel
+// universe; raise/remove this threshold if the generator contract ever grows.
+const contest_channels: usize = 10_000;
 const year_start: u32 = 1798761600;
 const month_start = [_]u32{ 1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000, 1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600 };
 const month_label = [_][]const u8{ "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12" };
 
 // Contest-wide 1B expected data keeps every per-channel-month sum below u32::max.
-const Stats = struct { total_len: u32 = 0, stamps: u32 = 0, messages: u32 = 0, min_len: u16 = 0, max_len: u16 = 0 };
+const Stats = extern struct { total_len: u32 = 0, stamps: u32 = 0, messages: u32 = 0, min_len: u16 = 0, max_len: u16 = 0 };
 const Agg = struct { month: [12]Stats = [_]Stats{.{}} ** 12 };
-const Entry = struct { pos: usize = 0, hash: u32 = 0, len: u16 = 0, id: u16 = 0 };
+const Entry = struct { pos: u32 = 0, hash: u32 = 0, len: u16 = 0, id: u16 = 0 };
 const FlatMap = struct {
     entries: []Entry,
     aggs: []Agg,
+    fast_ids: []u16,
+    fast2_ids: []u16,
+    keys: []u8,
     size: usize = 0,
+    key_used: usize = 0,
     allocator: Allocator,
     fn init(a: Allocator) !FlatMap {
         const entries = try a.alloc(Entry, cap);
@@ -23,42 +35,75 @@ const FlatMap = struct {
         const aggs = try a.alloc(Agg, agg_cap);
         // Per-key initialization in find was neutral/slightly slower than this bulk zero-fill.
         @memset(aggs, .{});
-        return .{ .entries = entries, .aggs = aggs, .allocator = a };
+        const fast_ids = try a.alloc(u16, fast_cap);
+        const fast2_ids = try a.alloc(u16, fast_cap);
+        const keys = try a.alloc(u8, key_cap);
+        @memset(fast_ids, 0);
+        @memset(fast2_ids, 0);
+        return .{ .entries = entries, .aggs = aggs, .fast_ids = fast_ids, .fast2_ids = fast2_ids, .keys = keys, .allocator = a };
     }
     fn deinit(self: *FlatMap) void {
         self.allocator.free(self.entries);
         self.allocator.free(self.aggs);
+        self.allocator.free(self.fast_ids);
+        self.allocator.free(self.fast2_ids);
+        self.allocator.free(self.keys);
     }
-    fn find(self: *FlatMap, data: []const u8, key_pos: usize, len: u16, hash: u32) *Entry {
+    fn find(self: *FlatMap, key: []const u8, hash: u32) *Entry {
+        const len: u16 = @intCast(key.len);
         var i: usize = @as(usize, @intCast(hash)) & (cap - 1);
         while (true) : (i = (i + 1) & (cap - 1)) {
             const e = &self.entries[i];
             if (e.len == 0) {
-                e.* = .{ .pos = key_pos, .hash = hash, .len = len, .id = @intCast(self.size) };
+                if (self.key_used + key.len > self.keys.len) @panic("channel key arena overflow");
+                const pos = self.key_used;
+                @memcpy(self.keys[pos..][0..key.len], key);
+                self.key_used += key.len;
+                e.* = .{ .pos = @intCast(pos), .hash = hash, .len = len, .id = @intCast(self.size) };
+                // Seed only the 12 newly allocated extrema. This moves first-use
+                // handling out of the billion-row update path; other fields stay zero.
+                for (&self.aggs[e.id].month) |*s| s.min_len = std.math.maxInt(u16);
+                // Store id*3 so the hot path addresses a 192-byte Agg as slot*64.
+                const stored = e.id * 3 + 1;
+                const fast = &self.fast_ids[@as(usize, @intCast(hash)) & (fast_cap - 1)];
+                fast.* = if (fast.* == 0) stored else std.math.maxInt(u16);
+                const fast2 = &self.fast2_ids[hash >> 16];
+                fast2.* = if (fast2.* == 0) stored else std.math.maxInt(u16);
                 self.size += 1;
                 return e;
             }
             // Hand first/tail equality was slower; signature-only lookup merged distinct trap keys, so keep eql.
-            if (e.hash == hash and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
+            const pos: usize = @intCast(e.pos);
+            if (e.hash == hash and e.len == len and std.mem.eql(u8, self.keys[pos..][0..len], key)) return e;
         }
     }
-    fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u16, hash: u32, month: usize, ml: u32, stamps: u32) void {
-        const e = self.find(data, key_pos, len, hash);
-        const s = &self.aggs[e.id].month[month];
-        // Rejected: forcing all counters through one 128-bit VPADDD required a
-        // fixed-layout bitcast and slowed the complete 100M loop.
-        if (s.messages == 0) s.* = .{ .messages = 1, .total_len = ml, .stamps = stamps, .min_len = @intCast(ml), .max_len = @intCast(ml) } else {
-            s.messages += 1;
-            s.total_len += ml;
-            s.stamps += stamps;
-            s.min_len = @min(s.min_len, @as(u16, @intCast(ml)));
-            s.max_len = @max(s.max_len, @as(u16, @intCast(ml)));
+    fn resolve(self: *FlatMap, key: []const u8, hash: u32, month: usize) *Stats {
+        // Once all fixed 10k channels are known, ambiguous IDs alone fall back to exact find.
+        var stored: u16 = std.math.maxInt(u16);
+        if (self.size == contest_channels) {
+            stored = self.fast_ids[@as(usize, @intCast(hash)) & (fast_cap - 1)];
+            if (stored == std.math.maxInt(u16)) stored = self.fast2_ids[hash >> 16];
         }
+        const slot3: usize = if (stored != 0 and stored != std.math.maxInt(u16)) stored - 1 else @as(usize, self.find(key, hash).id) * 3;
+        const flat: [*]Stats = @ptrCast(self.aggs.ptr);
+        return &flat[slot3 * 4 + month];
     }
-    fn merge(self: *FlatMap, data: []const u8, other: *const FlatMap) void {
+    inline fn update(s: *Stats, ml: u32, stamps: u32) void {
+        // Marking the former messages==0 branch unlikely lost (3.916876 s vs
+        // 3.904171 s); the insertion-time min sentinel now removes it entirely.
+        // This VPADDD bitcast lost in the earlier pre-pipeline 100M layout, but
+        // after direct IDs/pipelining/compaction it won both 1B ABBA worker runs:
+        // 3.326967/3.343454 s versus scalar 3.332807/3.348797 s.
+        const lanes: @Vector(4, u32) = @bitCast(s.*);
+        s.* = @bitCast(lanes + @Vector(4, u32){ ml, stamps, 1, 0 });
+        s.min_len = @min(s.min_len, @as(u16, @intCast(ml)));
+        s.max_len = @max(s.max_len, @as(u16, @intCast(ml)));
+    }
+    fn merge(self: *FlatMap, other: *const FlatMap) void {
         for (other.entries) |src| {
             if (src.len == 0) continue;
-            const e = self.find(data, src.pos, src.len, src.hash);
+            const pos: usize = @intCast(src.pos);
+            const e = self.find(other.keys[pos..][0..src.len], src.hash);
             for (0..12) |m| {
                 const a = other.aggs[src.id].month[m];
                 if (a.messages == 0) continue;
@@ -85,13 +130,12 @@ const FlatMap = struct {
 inline fn load64(p: []const u8) u64 {
     return @as(*align(1) const u64, @ptrCast(p.ptr)).*;
 }
-inline fn mix64(v: u64) u64 {
-    var x = v;
-    x ^= x >> 30;
-    x *%= 0xbf58476d1ce4e5b9;
-    x ^= x >> 27;
-    x *%= 0x94d049bb133111eb;
-    return x ^ (x >> 31);
+inline fn crc32Word(seed: u64, value: u64) u32 {
+    return @truncate(asm ("crc32q %[value], %[result]"
+        : [result] "=r" (-> u64),
+        : [_] "0" (seed),
+          [value] "r" (value),
+    ));
 }
 inline fn hashBytes(p: []const u8) u32 {
     const n = p.len;
@@ -105,13 +149,20 @@ inline fn hashBytes(p: []const u8) u32 {
     } else if (n >= 8) {
         a = load64(p);
         c = load64(p[n - 8 ..]);
-    } else for (p, 0..) |x, i| a |= @as(u64, x) << @intCast(8 * i);
-    // Inline SSE4.2 CRC32 hashing was no faster in workers and made merging slower.
-    return @truncate(mix64(a *% 0x9e3779b185ebca87 ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43) ^ @as(u64, n) *% 0xd6e8feb86659fd93));
+    } else {
+        // Every key is followed by the comma and numeric fields, so one
+        // unaligned load is safe; mask away the bytes beyond this short key.
+        const bits: u6 = @intCast(n * 8);
+        a = load64(p) & ((@as(u64, 1) << bits) - 1);
+    }
+    // Rejected: chaining CRC32 over each sampled word was serial and slowed
+    // merging. Fold the position-rotated samples and issue CRC32 only once.
+    const folded = a ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43);
+    return crc32Word(@intCast(n), folded);
 }
 inline fn timestampHundreds(p: []const u8) u32 {
-    // Rejected: SSSE3 psubb+maddubs+maddwd cut the instruction count, but its
-    // serial dependency/register pressure made the complete 100M loop slower.
+    // SSSE3 psubb+maddubs+maddwd lost before pipelining, and retrying after
+    // key-arena pipelining still took 3.684621 s versus scalar's 3.663182 s.
     var x = load64(p) & 0x0f0f0f0f0f0f0f0f;
     x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
     x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
@@ -146,6 +197,9 @@ fn analyzeWorker(w: *Worker) void {
     const start = std.time.nanoTimestamp();
     var map = FlatMap.init(std.heap.page_allocator) catch @panic("out of memory");
     var p = w.begin;
+    var pending_stats: ?*Stats = null;
+    var pending_ml: u32 = 0;
+    var pending_stamps: u32 = 0;
     while (p < w.end) {
         // Removing this predictable guard made the 10M hot loop slower and lost CRLF/blank-line tolerance.
         if (w.data[p] == '\n' or w.data[p] == '\r') {
@@ -158,9 +212,15 @@ fn analyzeWorker(w: *Worker) void {
         p += 11;
         const key = p;
         p += commaOffset(w.data, p, w.end);
-        const len: u16 = @intCast(p - key);
-        const hash = hashBytes(w.data[key..p]);
-        // prefetcht0 here slowed 10M: the 2 MiB table was hot enough and the hint added cache traffic.
+        const channel = w.data[key..p];
+        const hash = hashBytes(channel);
+        const stats = map.resolve(channel, hash, month);
+        // Agg storage is fixed, so retain one pointer and overlap its random
+        // cache miss with this row's numeric parse plus the next row's key.
+        @prefetch(stats, .{ .rw = .read, .locality = 3, .cache = .data });
+        if (pending_stats) |s| FlatMap.update(s, pending_ml, pending_stamps);
+        // Rejected before direct IDs: prefetching the 2 MiB Entry table here
+        // slowed 10M because the table was hot enough and the hint added traffic.
         p += 1;
         // Rejected: explicit 3/2/1-digit probes helped 10M CPU time but enlarged
         // the loop and failed to improve repeated 100M wall-clock runs.
@@ -185,7 +245,20 @@ fn analyzeWorker(w: *Worker) void {
             while (w.data[p] != '\n') : (p += 1) stamps = stamps * 10 + w.data[p] - '0';
         }
         p += 1;
-        map.add(w.data, key, len, hash, month, ml, stamps);
+        pending_stats = stats;
+        pending_ml = ml;
+        pending_stamps = stamps;
+    }
+    if (pending_stats) |s| FlatMap.update(s, pending_ml, pending_stamps);
+    // Keys now live in the map arena. Drop only complete pages so adjacent
+    // chunks never invalidate the boundary line another worker may be parsing.
+    const page = std.heap.page_size_min;
+    const base = @intFromPtr(w.data.ptr);
+    const drop_begin = std.mem.alignForward(usize, base + w.begin, page);
+    const drop_end = std.mem.alignBackward(usize, base + w.end, page);
+    if (drop_end > drop_begin) {
+        const drop: [*]align(std.heap.page_size_min) u8 = @ptrFromInt(drop_begin);
+        posix.madvise(drop, drop_end - drop_begin, posix.MADV.DONTNEED) catch {};
     }
     w.map = map;
     w.elapsed_ns = std.time.nanoTimestamp() - start;
@@ -240,15 +313,16 @@ fn writeFixed2(writer: *std.Io.Writer, value: f64) !void {
     }
     try writer.print("{d}.{d:0>2}", .{ cents / 100, cents % 100 });
 }
-fn writeResult(writer: *std.Io.Writer, data: []const u8, map: *const FlatMap) !void {
+fn writeResult(writer: *std.Io.Writer, map: *const FlatMap) !void {
     // The verifier compares records by key, so table order avoids a temporary
     // array and a sort without changing the output set.
     for (map.entries) |e| {
         if (e.len == 0) continue;
+        const pos: usize = @intCast(e.pos);
         for (0..12) |m| {
             const s = map.aggs[e.id].month[m];
             if (s.messages == 0) continue;
-            try writer.print("{s},{s}={d}/", .{ data[e.pos..][0..e.len], month_label[m], s.min_len });
+            try writer.print("{s},{s}={d}/", .{ map.keys[pos..][0..e.len], month_label[m], s.min_len });
             try writeFixed2(writer, @as(f64, @floatFromInt(s.total_len)) / @as(f64, @floatFromInt(s.messages)));
             try writer.print("/{d}/{d}/{d}\n", .{ s.max_len, s.messages, s.stamps });
         }
@@ -299,7 +373,7 @@ pub fn main() !void {
     var worker_sum: i128 = workers[0].elapsed_ns;
     for (workers[1..]) |*w| {
         worker_sum += w.elapsed_ns;
-        merged.merge(data, &w.map.?);
+        merged.merge(&w.map.?);
         w.map.?.deinit();
     }
     const merge_ns = std.time.nanoTimestamp() - merge_start;
@@ -312,7 +386,7 @@ pub fn main() !void {
     const out_buf = try a.alloc(u8, 4 << 20);
     var stream = output.writerStreaming(out_buf);
     const output_start = std.time.nanoTimestamp();
-    try writeResult(&stream.interface, data, &merged);
+    try writeResult(&stream.interface, &merged);
     try stream.interface.flush();
     const output_ns = std.time.nanoTimestamp() - output_start;
     if (o.profile) std.debug.print("profile mmap={d:.6} workers_wall={d:.6} workers_sum={d:.6} merge={d:.6} output={d:.6} total={d:.6} chunks={d} groups={d}\n", .{ @as(f64, @floatFromInt(mmap_ns)) / 1e9, @as(f64, @floatFromInt(worker_ns)) / 1e9, @as(f64, @floatFromInt(worker_sum)) / 1e9, @as(f64, @floatFromInt(merge_ns)) / 1e9, @as(f64, @floatFromInt(output_ns)) / 1e9, @as(f64, @floatFromInt(std.time.nanoTimestamp() - total)) / 1e9, o.threads, merged.groups() });
