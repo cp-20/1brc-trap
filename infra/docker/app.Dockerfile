@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
 FROM ubuntu:26.04@sha256:c6c0067e0e45b7a826eaebb193cef957be28045380963a9b1eeb2a5d3c70a1b9 AS bun-base
-ARG BUN_VERSION=1.3.14
-ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
+ARG BUN_RELEASE=canary
+ARG BUN_REVISION=1.4.0-canary.1+a227ad991
+ARG BUN_SHA256=02126d1b2d6b23030fab4ba31146d967cca7d5094e2c99aa9038c192b13bde1f
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates curl unzip libstdc++6 && rm -rf /var/lib/apt/lists/* && \
-    curl -fsSLo /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" && \
+    curl -fsSLo /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/${BUN_RELEASE}/bun-linux-x64.zip" && \
     echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - && \
     mkdir -p /opt/bun/bin && unzip -p /tmp/bun.zip bun-linux-x64/bun > /opt/bun/bin/bun && \
-    chmod 0755 /opt/bun/bin/bun && rm /tmp/bun.zip
+    chmod 0755 /opt/bun/bin/bun && rm /tmp/bun.zip && \
+    test "$(/opt/bun/bin/bun --revision)" = "${BUN_REVISION}"
 ENV PATH="/opt/bun/bin:${PATH}"
 
 FROM bun-base AS manifests
