@@ -7,6 +7,7 @@ import { secureHeaders } from "hono/secure-headers";
 import type { Config } from "./infrastructures/config.js";
 import type { Database } from "./infrastructures/database.js";
 import type { Logger } from "./infrastructures/logger.js";
+import { serializeError } from "./infrastructures/logger.js";
 import { authMiddleware, type AppVariables } from "./middlewares/auth.js";
 import type { AccountRepository } from "./repositories/account-repository.js";
 import { createAccountRouter } from "./routers/account-router.js";
@@ -130,7 +131,8 @@ export function createApp(dependencies: AppDependencies) {
     dependencies.logger.error("request failed", {
       requestId: context.get("requestId"),
       code: appError.code,
-      error: error instanceof Error ? error.stack : String(error),
+      error: appError.message,
+      details: serializeError(appError),
     });
     return context.json(
       {

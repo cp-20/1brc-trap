@@ -31,3 +31,17 @@ export function createLogger(minimum: LogLevel) {
 }
 
 export type Logger = ReturnType<typeof createLogger>;
+
+export function serializeError(error: unknown, depth = 0): unknown {
+  if (!(error instanceof Error)) return String(error);
+  const code = (error as NodeJS.ErrnoException).code;
+  return {
+    name: error.name,
+    message: error.message,
+    ...(code ? { code } : {}),
+    ...(error.stack ? { stack: error.stack } : {}),
+    ...(error.cause !== undefined && depth < 2
+      ? { cause: serializeError(error.cause, depth + 1) }
+      : {}),
+  };
+}

@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { SubmissionItem } from "../../gateways/submission-gateway.js";
+import { verdictLabel } from "../../models/labels.js";
 import { AnimatedDuration, AnimatedNumber } from "../animated-number.js";
 
 import styles from "../../pages/submissions-page.module.css";
@@ -94,7 +95,7 @@ function resultMessage(
         <AnimatedDuration nanoseconds={submission.public.scoreNs} />
       </>
     ) : (
-      `計測が完了しました · ${submission?.public ? verdictResult(submission.public.verdict) : "結果なし"}`
+      `計測が完了しました · ${submission?.public ? verdictLabel(submission.public.verdict) : "結果なし"}`
     );
   }
   if (status === "running") return "プログラムを計測しています";
@@ -102,14 +103,4 @@ function resultMessage(
     return "計測環境でエラーが発生しました";
   if (status === "uploading") return "提出を受け付けています";
   return "計測の順番を待っています";
-}
-
-function verdictResult(verdict: string): string {
-  const labels: Record<string, string> = {
-    runtime_error: "実行時エラー",
-    wrong_answer: "不正解",
-    time_limit: "制限時間超過",
-    output_limit: "出力制限超過",
-  };
-  return labels[verdict] ?? verdict;
 }

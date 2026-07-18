@@ -21,7 +21,7 @@ const logger = createLogger(config.LOG_LEVEL);
 await migrateDatabase(config);
 logger.info("MariaDB migration completed");
 const database = createDatabase(config);
-const runner = await createRunnerClient(config);
+const runner = await createRunnerClient(config, logger);
 const contestRepository = createContestRepository(database);
 const submissionRepository = createSubmissionRepository(database);
 const administrationRepository = createAdminRepository(database);

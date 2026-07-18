@@ -9,6 +9,7 @@ import {
   type Orm,
 } from "../infrastructures/database.js";
 import type { Logger } from "../infrastructures/logger.js";
+import { serializeError } from "../infrastructures/logger.js";
 import type { RunnerClient } from "../infrastructures/runner-client.js";
 import {
   benchmarkRuns,
@@ -159,6 +160,7 @@ export function createBenchmarkWorkerService(
         logger.error("benchmark infrastructure failure", {
           submissionId: job.id,
           error: result.error.message,
+          details: serializeError(result.error),
         });
         await retryResultUntilStopped(
           () =>

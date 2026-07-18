@@ -14,6 +14,7 @@ import { Client, type ConnectConfig } from "ssh2";
 
 import { AppError } from "../utils/errors.js";
 import type { Config } from "./config.js";
+import { serializeError, type Logger } from "./logger.js";
 
 export interface RunnerClient {
   upload(
@@ -31,6 +32,7 @@ export interface RunnerClient {
 
 export async function createRunnerClient(
   config: Config,
+  logger: Logger,
 ): Promise<RunnerClient> {
   const privateKey = config.RUNNER_SSH_PRIVATE_KEY_BASE64
     ? Buffer.from(config.RUNNER_SSH_PRIVATE_KEY_BASE64, "base64").toString(
@@ -61,7 +63,7 @@ export async function createRunnerClient(
           path,
           15 * 60_000,
         ).then(() => undefined),
-        runnerError,
+        (cause) => runnerError(logger, "upload", submissionId, cause),
       );
     },
     run(submissionId, kind) {
@@ -81,7 +83,7 @@ export async function createRunnerClient(
           }
           return parsed;
         }),
-        runnerError,
+        (cause) => runnerError(logger, "run", submissionId, cause),
       );
     },
     cleanup(submissionId) {
@@ -89,7 +91,7 @@ export async function createRunnerClient(
         exec(connection, `cleanup ${submissionId}`, 30_000).then(
           () => undefined,
         ),
-        runnerError,
+        (cause) => runnerError(logger, "cleanup", submissionId, cause),
       );
     },
   };
@@ -108,7 +110,17 @@ function createHostVerifier(expectedFingerprint: string) {
   };
 }
 
-function runnerError(cause: unknown) {
+function runnerError(
+  logger: Logger,
+  operation: "upload" | "run" | "cleanup",
+  submissionId: string,
+  cause: unknown,
+) {
+  logger.error("runner operation failed", {
+    operation,
+    submissionId,
+    cause: serializeError(cause),
+  });
   return new AppError(
     "infrastructure",
     "runner_unavailable",

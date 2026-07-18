@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { Link } from "react-router-dom";
 
 import type { SubmissionItem } from "../../gateways/submission-gateway.js";
-import { languageLabel } from "../../models/labels.js";
+import { languageLabel, verdictLabel } from "../../models/labels.js";
 import { formatDate } from "../../utils/format.js";
 import { AnimatedDuration } from "../animated-number.js";
 import { Panel } from "../ui.js";
@@ -61,7 +61,9 @@ export function SubmissionHistoryTable({
                             </strong>
                           ) : (
                             <strong className={styles.errorScore}>
-                              エラー
+                              {item.public
+                                ? verdictLabel(item.public.verdict)
+                                : "計測エラー"}
                             </strong>
                           )}
                         </div>
@@ -80,7 +82,7 @@ export function SubmissionHistoryTable({
                               </strong>
                             ) : item.private ? (
                               <strong className={styles.errorScore}>
-                                エラー
+                                {verdictLabel(item.private.verdict)}
                               </strong>
                             ) : (
                               <strong className={styles.unpublishedScore}>
