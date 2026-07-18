@@ -118,7 +118,8 @@ function InputOutputSection({
           行は時刻順やチャンネル順に並んでいません。並び順は仮定できません。
         </li>
         <li>
-          投稿時刻 (<code>unix_timestamp</code>) は2027年の1月1日から2027年12月31日までの範囲です。
+          投稿時刻 (<code>unix_timestamp</code>)
+          は2027年の1月1日から2027年12月31日までの範囲です。
         </li>
         <li>
           メッセージ長 (<code>message_length</code>) は1以上の整数です。
