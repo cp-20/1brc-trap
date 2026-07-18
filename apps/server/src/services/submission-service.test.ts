@@ -1,10 +1,10 @@
+import { describe, expect, it, vi } from "bun:test";
 import { access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { submissionPolicy } from "@1brc/domain";
 import { errAsync, okAsync } from "neverthrow";
-import { describe, expect, it, vi } from "vitest";
 
 import type { Config } from "../infrastructures/config.js";
 import type { RunnerClient } from "../infrastructures/runner-client.js";
@@ -38,7 +38,7 @@ describe("submission upload cleanup", () => {
     const result = await service.accept("user", uploadRequest());
 
     expect(result.isErr() && result.error).toBe(runnerFailure);
-    expect(repository.storeSource).toHaveBeenCalledOnce();
+    expect(repository.storeSource).toHaveBeenCalledTimes(1);
     expect(repository.queueUpload).not.toHaveBeenCalled();
     expect(runner.cleanup).toHaveBeenCalledWith(id);
     expect(repository.discardUpload).toHaveBeenCalledWith(id);
@@ -139,6 +139,10 @@ function uploadRequest(form = validForm(), signal?: AbortSignal) {
   });
 }
 
-function expectTemporaryDirectoryRemoved(id: string) {
-  return expect(access(join(tmpdir(), `1brc-upload-${id}`))).rejects.toThrow();
+async function expectTemporaryDirectoryRemoved(id: string) {
+  const exists = await access(join(tmpdir(), `1brc-upload-${id}`)).then(
+    () => true,
+    () => false,
+  );
+  expect(exists).toBe(false);
 }

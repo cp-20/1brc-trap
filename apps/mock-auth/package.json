@@ -8,9 +8,6 @@
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
-  },
-  "devDependencies": {
-    "vitest": "^4.1.10"
+    "test": "bun test --isolate --pass-with-no-tests"
   }
 }

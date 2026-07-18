@@ -19,13 +19,11 @@
     "db:check": "drizzle-kit check",
     "db:migrate": "bun src/migrate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p scripts/tsconfig.json",
-    "test": "vitest run src",
-    "test:coverage": "vitest run src --coverage --coverage.include='src/**/*.ts' --coverage.exclude='src/**/*.test.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.thresholds.lines=25"
+    "test": "bun test --isolate src",
+    "test:coverage": "bun test --isolate src --coverage"
   },
   "dependencies": {
     "@1brc/domain": "workspace:*",
-    "@aws-sdk/client-s3": "^3.1084.0",
-    "@aws-sdk/s3-request-presigner": "^3.1084.0",
     "@hono/zod-validator": "^0.8.0",
     "@remix-run/form-data-parser": "^0.17.4",
     "drizzle-orm": "^0.45.2",
@@ -39,7 +37,6 @@
   "devDependencies": {
     "@types/ssh2": "^1.15.5",
     "@testcontainers/mariadb": "^12.0.4",
-    "drizzle-kit": "^0.31.10",
-    "vitest": "^4.1.10"
+    "drizzle-kit": "^0.31.10"
   }
 }

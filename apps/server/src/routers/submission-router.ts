@@ -53,6 +53,7 @@ export function createSubmissionRouter(
       return streamSSE(context, (stream) =>
         streamJsonChanges(stream, {
           event: "submissions",
+          cacheKey: `submissions:${user.value.username}`,
           load: () =>
             query
               .listForUser(user.value.username)

@@ -1,31 +1,30 @@
+import { beforeEach, describe, expect, it, vi } from "bun:test";
+
 import { err, ok } from "neverthrow";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../utils/errors.js";
 import type { Config } from "./config.js";
-import { createDatabase } from "./database.js";
 
-const mocks = vi.hoisted(() => {
-  const connection = {
-    beginTransaction: vi.fn(),
-    commit: vi.fn(),
-    rollback: vi.fn(),
-    release: vi.fn(),
-  };
-  return {
-    connection,
-    pool: {
-      query: vi.fn(),
-      execute: vi.fn(),
-      getConnection: vi.fn(async () => connection),
-      end: vi.fn(),
-    },
-  };
-});
+const connection = {
+  beginTransaction: vi.fn(),
+  commit: vi.fn(),
+  rollback: vi.fn(),
+  release: vi.fn(),
+};
+const mocks = {
+  connection,
+  pool: {
+    query: vi.fn(),
+    execute: vi.fn(),
+    getConnection: vi.fn(async () => connection),
+    end: vi.fn(),
+  },
+};
 
-vi.mock("mysql2/promise", () => ({
+await vi.mock("mysql2/promise", () => ({
   default: { createPool: () => mocks.pool },
 }));
+const { createDatabase } = await import("./database.js");
 
 describe("database Result boundary", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -37,9 +36,9 @@ describe("database Result boundary", () => {
     const result = await database.transaction(async () => err(expected));
 
     expect(result.isErr() && result.error).toBe(expected);
-    expect(mocks.connection.rollback).toHaveBeenCalledOnce();
+    expect(mocks.connection.rollback).toHaveBeenCalledTimes(1);
     expect(mocks.connection.commit).not.toHaveBeenCalled();
-    expect(mocks.connection.release).toHaveBeenCalledOnce();
+    expect(mocks.connection.release).toHaveBeenCalledTimes(1);
   });
 
   it("成功Resultのときだけtransactionをcommitする", async () => {
@@ -48,7 +47,7 @@ describe("database Result boundary", () => {
     const result = await database.transaction(async () => ok("stored"));
 
     expect(result.isOk() && result.value).toBe("stored");
-    expect(mocks.connection.commit).toHaveBeenCalledOnce();
+    expect(mocks.connection.commit).toHaveBeenCalledTimes(1);
     expect(mocks.connection.rollback).not.toHaveBeenCalled();
   });
 

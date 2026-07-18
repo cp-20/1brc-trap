@@ -4,12 +4,19 @@ import type { SSEStreamingApi } from "hono/streaming";
 import type { ResultAsync } from "neverthrow";
 
 import type { AppError } from "./errors.js";
+import { createResultCache } from "./result-cache.js";
+
+const serializedCache = createResultCache<
+  { data: string; digest: string },
+  AppError
+>(1_000);
 
 export async function streamJsonChanges<T>(
   stream: SSEStreamingApi,
   options: {
     event: string;
     load: () => ResultAsync<T, AppError>;
+    cacheKey?: string;
     intervalMs?: number;
     heartbeatMs?: number;
   },
@@ -20,7 +27,11 @@ export async function streamJsonChanges<T>(
   let lastWriteAt = Date.now();
 
   while (!stream.closed && !stream.aborted) {
-    const loaded = await options.load();
+    const loaded = await (options.cacheKey
+      ? serializedCache(options.cacheKey, () =>
+          options.load().map((value) => serialize(value)),
+        )
+      : options.load().map((value) => serialize(value)));
     if (loaded.isErr()) {
       await stream.writeSSE({
         event: "error",
@@ -33,8 +44,7 @@ export async function streamJsonChanges<T>(
       });
       return;
     }
-    const data = JSON.stringify(loaded.value);
-    const digest = createHash("sha256").update(data).digest("base64");
+    const { data, digest } = loaded.value;
     if (digest !== previousDigest) {
       previousDigest = digest;
       lastWriteAt = Date.now();
@@ -50,4 +60,12 @@ export async function streamJsonChanges<T>(
     }
     await stream.sleep(intervalMs);
   }
+}
+
+function serialize(value: unknown) {
+  const data = JSON.stringify(value);
+  return {
+    data,
+    digest: createHash("sha256").update(data).digest("base64"),
+  };
 }

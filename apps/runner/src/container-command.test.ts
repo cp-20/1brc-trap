@@ -1,5 +1,6 @@
+import { describe, expect, it } from "bun:test";
+
 import { benchmarkPolicy } from "@1brc/domain";
-import { describe, expect, it } from "vitest";
 
 import { buildContainerCreateArgs } from "./container-command.js";
 

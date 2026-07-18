@@ -4,7 +4,7 @@
     "outDir": "dist",
     "rootDir": ".",
     "exactOptionalPropertyTypes": false,
-    "types": ["node"]
+    "types": ["bun", "node"]
   },
   "include": ["bin", "lib", "test"]
 }

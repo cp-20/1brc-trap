@@ -1,5 +1,6 @@
+import { describe, expect, it, vi } from "bun:test";
+
 import { errAsync, okAsync } from "neverthrow";
-import { describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../utils/errors.js";
 import { retryResultUntilStopped } from "./benchmark-worker-service.js";
@@ -18,16 +19,16 @@ describe("benchmark infrastructure failure", () => {
     const onRetry = vi.fn();
     const wait = vi.fn(async () => undefined);
 
-    await expect(
-      retryResultUntilStopped(markFailure, {
+    expect(
+      await retryResultUntilStopped(markFailure, {
         isStopping: () => false,
         onRetry,
         wait,
       }),
-    ).resolves.toBe(true);
+    ).toBe(true);
 
     expect(markFailure).toHaveBeenCalledTimes(2);
     expect(onRetry).toHaveBeenCalledWith(databaseError);
-    expect(wait).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledTimes(1);
   });
 });

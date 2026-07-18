@@ -1,6 +1,7 @@
+import { describe, expect, it, vi } from "bun:test";
+
 import { Hono } from "hono";
 import { errAsync, okAsync } from "neverthrow";
-import { describe, expect, it, vi } from "vitest";
 
 import type { ContestService } from "../services/contest-service.js";
 import { AppError } from "../utils/errors.js";
@@ -15,7 +16,7 @@ describe("API error boundary", () => {
     const response = await app.request("/leaderboard?board=unknown");
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
+    expect(await response.json()).toEqual({
       error: {
         code: "invalid_request",
         message: "リクエストの形式が不正です",
@@ -40,7 +41,7 @@ describe("API error boundary", () => {
     const response = await app.request("/leaderboard?board=public");
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
+    expect(await response.json()).toEqual({
       error: {
         code: "database_error",
         message: "Database operation failed",

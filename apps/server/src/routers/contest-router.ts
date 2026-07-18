@@ -31,6 +31,7 @@ export function createContestRouter(service: ContestService) {
         return streamSSE(context, (stream) =>
           streamJsonChanges(stream, {
             event: "contest",
+            cacheKey: `contest:${query.board ?? "public"}:${query.language ?? "all"}`,
             load: () => service.liveSnapshot(query.board, query.language),
           }),
         );

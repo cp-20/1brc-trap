@@ -1,6 +1,7 @@
+import { describe, expect, it, vi } from "bun:test";
+
 import { benchmarkPolicy } from "@1brc/domain";
 import { okAsync } from "neverthrow";
-import { describe, expect, it, vi } from "vitest";
 
 import type { Config } from "../infrastructures/config.js";
 import type { R2Signer } from "../infrastructures/r2-signer.js";

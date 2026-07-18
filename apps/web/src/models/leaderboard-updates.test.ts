@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { detectLeaderboardRecordUpdates } from "./leaderboard-updates.js";
 import type { LeaderboardEntry } from "./leaderboard.js";

@@ -1,5 +1,6 @@
+import { describe, expect, it, vi } from "bun:test";
+
 import { errAsync, okAsync } from "neverthrow";
-import { describe, expect, it, vi } from "vitest";
 
 import { createResultCache } from "./result-cache.js";
 
@@ -13,7 +14,7 @@ describe("createResultCache", () => {
     ]);
     expect(first.isOk() && first.value).toBe("value");
     expect(second.isOk() && second.value).toBe("value");
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it("失敗時も短時間はloadを共有する", async () => {
@@ -21,7 +22,7 @@ describe("createResultCache", () => {
     const cached = createResultCache<string, Error>(1_000);
     await cached("key", load);
     await cached("key", load);
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it("TTL後は新しい値を読み込み、SSEへ古い状態を配り続けない", async () => {
@@ -34,7 +35,7 @@ describe("createResultCache", () => {
       const cached = createResultCache<string, Error>(1_000);
       await cached("key", load);
 
-      await vi.advanceTimersByTimeAsync(1_001);
+      vi.advanceTimersByTime(1_001);
       const result = await cached("key", load);
 
       expect(result.isOk() && result.value).toBe("second");

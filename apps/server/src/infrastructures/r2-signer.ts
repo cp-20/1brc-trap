@@ -1,9 +1,3 @@
-import {
-  GetObjectCommand,
-  HeadObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ResultAsync } from "neverthrow";
 
 import { AppError } from "../utils/errors.js";
@@ -15,16 +9,21 @@ export function createR2Signer(config: Config) {
   const publicEndpoint =
     config.R2_ENDPOINT ??
     `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  const createClient = (endpoint: string) =>
-    new S3Client({
+  const createClient = (endpoint: string) => {
+    const url = new URL(endpoint);
+    const virtualHostedStyle = url.protocol === "https:";
+    if (virtualHostedStyle) {
+      url.hostname = `${config.R2_BUCKET_NAME}.${url.hostname}`;
+    }
+    return new Bun.S3Client({
       region: "auto",
-      endpoint,
-      forcePathStyle: endpoint.startsWith("http://"),
-      credentials: {
-        accessKeyId: config.R2_ACCESS_KEY_ID,
-        secretAccessKey: config.R2_SECRET_ACCESS_KEY,
-      },
+      endpoint: url.toString(),
+      virtualHostedStyle,
+      bucket: config.R2_BUCKET_NAME,
+      accessKeyId: config.R2_ACCESS_KEY_ID,
+      secretAccessKey: config.R2_SECRET_ACCESS_KEY,
     });
+  };
   const publicClient = createClient(publicEndpoint);
   const internalClient = config.R2_INTERNAL_ENDPOINT
     ? createClient(config.R2_INTERNAL_ENDPOINT)
@@ -33,14 +32,7 @@ export function createR2Signer(config: Config) {
   return {
     verifyObject(objectKey: string) {
       return ResultAsync.fromPromise(
-        internalClient
-          .send(
-            new HeadObjectCommand({
-              Bucket: config.R2_BUCKET_NAME,
-              Key: objectKey,
-            }),
-          )
-          .then(() => undefined),
+        internalClient.stat(objectKey).then(() => undefined),
         (cause) =>
           new AppError(
             "infrastructure",
@@ -52,14 +44,11 @@ export function createR2Signer(config: Config) {
     },
     signDownload(objectKey: string, filename: string) {
       return ResultAsync.fromPromise(
-        getSignedUrl(
-          publicClient,
-          new GetObjectCommand({
-            Bucket: config.R2_BUCKET_NAME,
-            Key: objectKey,
-            ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        Promise.resolve().then(() =>
+          publicClient.presign(objectKey, {
+            expiresIn: 15 * 60,
+            contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
           }),
-          { expiresIn: 15 * 60 },
         ),
         (cause) =>
           new AppError(

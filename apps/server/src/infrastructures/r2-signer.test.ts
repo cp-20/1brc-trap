@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { Config } from "./config.js";
 import { createR2Signer } from "./r2-signer.js";

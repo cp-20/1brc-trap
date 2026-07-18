@@ -1,15 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "bun:test";
 
 import { createCurlExample, sourceAccept } from "./submission-options.js";
 import type { SubmissionDraft } from "./submission.js";
 
 describe("submission command", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => Reflect.deleteProperty(globalThis, "window"));
 
   it("Native提出にはlanguage・source・binaryをすべて含める", () => {
-    vi.stubGlobal("window", {
-      location: { origin: "https://contest.example" },
-    });
+    stubWindow("https://contest.example");
     const command = createCurlExample(
       draft({
         executionKind: "native",
@@ -27,9 +25,7 @@ describe("submission command", () => {
   });
 
   it("script提出ではlanguageとbinaryを送らず、runtimeに合う拡張子だけを許可する", () => {
-    vi.stubGlobal("window", {
-      location: { origin: "https://contest.example" },
-    });
+    stubWindow("https://contest.example");
     const typescript = draft({ executionKind: "typescript" });
     const command = createCurlExample(typescript);
 
@@ -39,6 +35,13 @@ describe("submission command", () => {
     expect(sourceAccept(typescript)).toBe(".ts");
   });
 });
+
+function stubWindow(origin: string) {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: { origin } },
+  });
+}
 
 function draft(overrides: Partial<SubmissionDraft>): SubmissionDraft {
   return {

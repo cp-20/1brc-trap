@@ -1,5 +1,6 @@
+import { describe, expectTypeOf, it } from "bun:test";
+
 import type { SubmissionStatus } from "@1brc/domain";
-import { describe, expectTypeOf, it } from "vitest";
 
 import { apiTokens, datasetReleases, submissions } from "./schema.js";
 

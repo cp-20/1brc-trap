@@ -1,8 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { describe, expect, it } from "vitest";
 
 import { runWithFileLock } from "./run-lock.js";
 
@@ -18,15 +17,15 @@ describe("runner file lock", () => {
       ]);
       await waitForFile(acquiredMarker);
 
-      await expect(
-        runWithFileLock(lockFile, process.execPath, ["-e", ""]),
-      ).resolves.toBe("busy");
+      expect(
+        await runWithFileLock(lockFile, process.execPath, ["-e", ""]),
+      ).toBe("busy");
       const crashResult = await first;
       expect(crashResult).not.toBe(0);
       expect(crashResult).not.toBe("busy");
-      await expect(
-        runWithFileLock(lockFile, process.execPath, ["-e", ""]),
-      ).resolves.toBe(0);
+      expect(
+        await runWithFileLock(lockFile, process.execPath, ["-e", ""]),
+      ).toBe(0);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

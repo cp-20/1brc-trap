@@ -52,6 +52,7 @@ const app = new Hono()
     streamSSE(context, (stream) =>
       streamJsonChanges(stream, {
         event: "submissions",
+        cacheKey: "profile:submissions",
         load: () => okAsync({ submissions: rows }),
         intervalMs: 20,
         heartbeatMs: Infinity,

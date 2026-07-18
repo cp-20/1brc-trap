@@ -3,7 +3,12 @@
   "ignoreBinaries": ["flock", "pinact"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts", "baselines/**/*.ts", "optimized/**/*.ts"]
+      "entry": [
+        "scripts/*.ts",
+        "baselines/**/*.ts",
+        "optimized/**/*.ts",
+        "infra/docker/*.test.ts"
+      ]
     },
     "apps/mock-auth": {
       "entry": ["src/index.ts"]

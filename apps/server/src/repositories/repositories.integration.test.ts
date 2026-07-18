@@ -1,5 +1,13 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
+
 import { MariaDbContainer } from "@testcontainers/mariadb";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Config } from "../infrastructures/config.js";
 import { createDatabase, type Database } from "../infrastructures/database.js";
@@ -124,7 +132,7 @@ describe("submission history", () => {
     const result = await createSubmissionRepository(database).byUser("user");
 
     expect(result.isOk()).toBe(true);
-    expect(
+    expect<Array<{ submission_number: number; queue_ahead: number | null }>>(
       result._unsafeUnwrap().map(({ submission_number, queue_ahead }) => ({
         submission_number,
         queue_ahead,
