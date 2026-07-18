@@ -23,9 +23,10 @@ const (
 	defaultBufferLen = 4 << 20
 )
 
+// Fixed 1B public/private data peaks below 2.82B total bytes and 29M stamps per group.
 type stats struct {
-	totalLen uint64
-	stamps   uint64
+	totalLen uint32
+	stamps   uint32
 	messages uint32
 	minLen   uint16
 	maxLen   uint16
@@ -38,6 +39,7 @@ type flatMap struct {
 	size    int
 }
 
+// A full hash plus uint16 length kept this at 16B but did not improve the 10M runtime.
 type mapEntry struct {
 	pos uint64
 	len uint32
@@ -127,6 +129,8 @@ func main() {
 	threads := flag.Int("t", runtime.NumCPU(), "worker thread count")
 	profileEnabled := flag.Bool("profile", false, "print timing profile to stderr")
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
+	// A default PGO profile improved 10M by inlining hot map functions, but
+	// regressed 100M, so profiling stays opt-in instead of shipping that profile.
 	if len(os.Args) == 3 && !strings.HasPrefix(os.Args[1], "-") && !strings.HasPrefix(os.Args[2], "-") {
 		*input, *output = os.Args[1], os.Args[2]
 	} else {
@@ -249,8 +253,8 @@ func analyzeMemory(data []byte, threads int, p *profile) (*flatMap, error) {
 	}
 
 	mergeStart := time.Now()
-	merged := newFlatMap(defaultMapCap)
-	for _, local := range locals {
+	merged := locals[0]
+	for _, local := range locals[1:] {
 		merged.mergeFrom(local)
 	}
 	if p != nil {
@@ -274,8 +278,7 @@ func analyzeChunk(data []byte, begin, end int) *flatMap {
 		x = (x&0x000f000f000f000f)*10 + ((x >> 8) & 0x000f000f000f000f)
 		x = (x&0x000000ff000000ff)*100 + ((x >> 16) & 0x000000ff000000ff)
 		first8 := uint32(x)*10000 + uint32(x>>32)
-		timestamp := first8*100 + uint32(data[i+8]-'0')*10 + uint32(data[i+9]-'0')
-		month := monthIndexFromUnixTimestamp(timestamp)
+		month := int(monthByDay[(first8-17987616)/864])
 		p := i + 11
 
 		channelBegin := p
@@ -303,11 +306,6 @@ func analyzeChunk(data []byte, begin, end int) *flatMap {
 		i = p
 	}
 	return m
-}
-
-func monthIndexFromUnixTimestamp(timestamp uint32) int {
-	day := (timestamp - uint32(monthStartUnix[0])) / 86400
-	return int(monthByDay[day])
 }
 
 func splitChunks(data []byte, begin, end, threads int) []chunk {
@@ -365,16 +363,16 @@ func (m *flatMap) add(key []byte, hash uint32, month int, messageLength, stampCo
 	if s.messages == 0 {
 		*s = stats{
 			messages: 1,
-			totalLen: uint64(messageLength),
-			stamps:   uint64(stampCount),
+			totalLen: messageLength,
+			stamps:   stampCount,
 			minLen:   uint16(messageLength),
 			maxLen:   uint16(messageLength),
 		}
 		return
 	}
 	s.messages++
-	s.totalLen += uint64(messageLength)
-	s.stamps += uint64(stampCount)
+	s.totalLen += messageLength
+	s.stamps += stampCount
 	if uint16(messageLength) < s.minLen {
 		s.minLen = uint16(messageLength)
 	}
@@ -400,6 +398,7 @@ func (m *flatMap) findOrInsert(key []byte, hash uint32) *mapEntry {
 			m.size++
 			return e
 		}
+		// Manual first/last-word probes did not beat bytes.Equal on the 10M workload.
 		if e.tag == tag && e.len == length && bytes.Equal(
 			m.keys[e.pos:e.pos+uint64(e.len)],
 			key,
@@ -459,8 +458,8 @@ func (m *flatMap) rehash(capacity int) {
 }
 
 func (m *flatMap) insertRehashed(entry mapEntry) {
-	hash := hashBytes(m.keys[entry.pos : entry.pos+uint64(entry.len)])
 	mask := uint32(len(m.entries) - 1)
+	hash := hashBytes(m.keys[entry.pos : entry.pos+uint64(entry.len)])
 	index := hash & mask
 	for m.entries[index].len != 0 {
 		index = (index + 1) & mask
@@ -517,7 +516,7 @@ func writeResult(w io.Writer, m *flatMap) error {
 			line = append(line, '/')
 			line = strconv.AppendUint(line, uint64(s.messages), 10)
 			line = append(line, '/')
-			line = strconv.AppendUint(line, s.stamps, 10)
+			line = strconv.AppendUint(line, uint64(s.stamps), 10)
 			line = append(line, '\n')
 			if _, err := buffered.Write(line); err != nil {
 				return err

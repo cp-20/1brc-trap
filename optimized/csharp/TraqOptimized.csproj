@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishAot>true</PublishAot>
+    <!-- OptimizationPreference=Speed did not improve the 10M runtime, alone or with x86-x64-v3. -->
+    <IlcInstructionSet>x86-x64-v3</IlcInstructionSet>
     <InvariantGlobalization>true</InvariantGlobalization>
     <StripSymbols>true</StripSymbols>
   </PropertyGroup>

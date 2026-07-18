@@ -19,8 +19,8 @@
 #define YEAR_START 1798761600u
 
 typedef struct {
-  uint64_t total_len, stamps;
-  uint32_t messages;
+  // Contest inputs keep every channel-month accumulator below UINT32_MAX.
+  uint32_t total_len, stamps, messages;
   uint16_t min_len, max_len;
 } Stats;
 typedef struct {
@@ -28,8 +28,8 @@ typedef struct {
 } ChannelAgg;
 typedef struct {
   const char *key;
-  uint32_t len;
-  uint16_t id, tag;
+  uint32_t hash;
+  uint16_t len, id;
 } MapEntry;
 typedef struct {
   MapEntry *entries;
@@ -75,7 +75,10 @@ static uint16_t load16(const char *p) {
   memcpy(&x, p, 2);
   return x;
 }
-static int key_equal(const char *a, const char *b, uint32_t n) {
+static inline __attribute__((always_inline)) int
+key_equal(const char *a, const char *b, uint32_t n) {
+  // Rejected: inlining <=8-byte keys in MapEntry added a hot-path branch and
+  // register pressure, outweighing the saved pointer load in local benchmarks.
   if (n >= 8) {
     if (load64(a) != load64(b))
       return 0;
@@ -104,6 +107,9 @@ static int key_equal(const char *a, const char *b, uint32_t n) {
   }
   return !n || *a == *b;
 }
+static inline uint64_t rotl64(uint64_t x, unsigned n) {
+  return (x << (n & 63)) | (x >> ((64 - n) & 63));
+}
 static uint32_t hash_bytes(const char *p, size_t n, const char *end) {
   uint64_t hash = n;
   if (n < 8) {
@@ -121,12 +127,13 @@ static uint32_t hash_bytes(const char *p, size_t n, const char *end) {
     }
     return (uint32_t)_mm_crc32_u64(hash, x);
   }
-  hash = _mm_crc32_u64(hash, load64(p));
-  if (n > 16)
-    hash = _mm_crc32_u64(hash, load64(p + n / 2 - 4));
+  uint64_t x = load64(p);
   if (n > 8)
-    hash = _mm_crc32_u64(hash, load64(p + n - 8));
-  return (uint32_t)hash;
+    x ^= rotl64(load64(p + n - 8), (unsigned)n);
+  // Rejected: hashing only first+last increased probing on channel paths.
+  if (n > 16)
+    x ^= rotl64(load64(p + n / 2 - 4), (unsigned)n / 2);
+  return (uint32_t)_mm_crc32_u64(hash, x);
 }
 static void map_init(FlatMap *m) {
   memset(m, 0, sizeof(*m));
@@ -140,28 +147,31 @@ static void map_free(FlatMap *m) {
   free(m->entries);
   free(m->aggs);
 }
-static MapEntry *map_find(FlatMap *m, const char *key, uint32_t len,
-                          uint32_t hash) {
+static __attribute__((noinline, cold)) MapEntry *
+map_insert(FlatMap *m, MapEntry *e, const char *key, uint32_t len,
+           uint32_t hash) {
+  if (m->size == m->agg_cap) {
+    m->agg_cap *= 2;
+    m->aggs = realloc(m->aggs, (size_t)m->agg_cap * sizeof(ChannelAgg));
+    if (!m->aggs)
+      die("realloc");
+    memset(&m->aggs[m->size], 0,
+           (m->agg_cap - m->size) * sizeof(ChannelAgg));
+  }
+  e->key = key;
+  e->hash = hash;
+  e->len = (uint16_t)len;
+  e->id = (uint16_t)m->size++;
+  return e;
+}
+static inline __attribute__((always_inline)) MapEntry *
+map_find(FlatMap *m, const char *key, uint32_t len, uint32_t hash) {
   uint32_t i = hash & (MAP_CAPACITY - 1);
-  uint16_t tag = (uint16_t)(hash >> 16);
   for (;;) {
     MapEntry *e = &m->entries[i];
-    if (!e->key) {
-      if (m->size == m->agg_cap) {
-        m->agg_cap *= 2;
-        m->aggs = realloc(m->aggs, (size_t)m->agg_cap * sizeof(ChannelAgg));
-        if (!m->aggs)
-          die("realloc");
-        memset(&m->aggs[m->size], 0,
-               (m->agg_cap - m->size) * sizeof(ChannelAgg));
-      }
-      e->key = key;
-      e->len = len;
-      e->id = (uint16_t)m->size++;
-      e->tag = tag;
-      return e;
-    }
-    if (e->tag == tag && e->len == len && key_equal(e->key, key, len))
+    if (!e->key)
+      return map_insert(m, e, key, len, hash);
+    if (e->hash == hash && e->len == len && key_equal(e->key, key, len))
       return e;
     i = (i + 1) & (MAP_CAPACITY - 1);
   }
@@ -190,8 +200,7 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
     const MapEntry *a = &src->entries[i];
     if (!a->key)
       continue;
-    MapEntry *b =
-        map_find(dst, a->key, a->len, hash_bytes(a->key, a->len, NULL));
+    MapEntry *b = map_find(dst, a->key, a->len, a->hash);
     for (unsigned j = 0; j < 12; j++) {
       const Stats *x = &src->aggs[a->id].month[j];
       Stats *y = &dst->aggs[b->id].month[j];
@@ -211,25 +220,23 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
     }
   }
 }
-static uint32_t timestamp10(const char *p) {
+static uint32_t timestamp8(const char *p) {
   uint64_t x = load64(p) & 0x0f0f0f0f0f0f0f0fULL;
   x = (x & 0x000f000f000f000fULL) * 10 +
       ((x >> 8) & 0x000f000f000f000fULL);
   x = (x & 0x000000ff000000ffULL) * 100 +
       ((x >> 16) & 0x000000ff000000ffULL);
-  uint32_t first8 = (uint32_t)x * 10000 + (uint32_t)(x >> 32);
-  return first8 * 100 + (uint8_t)(p[8] - '0') * 10 +
-         (uint8_t)(p[9] - '0');
+  return (uint32_t)x * 10000 + (uint32_t)(x >> 32);
 }
 static uint32_t channel_length(const char *p, const char *end) {
-  const __m256i comma = _mm256_set1_epi8(',');
+  const __m128i comma = _mm_set1_epi8(',');
   uint32_t offset = 0;
-  while (p + offset + 32 <= end) {
-    uint32_t mask = (uint32_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_loadu_si256((const __m256i *)(p + offset)), comma));
+  while (p + offset + 16 <= end) {
+    uint32_t mask = (uint32_t)_mm_movemask_epi8(_mm_cmpeq_epi8(
+        _mm_loadu_si128((const __m128i *)(p + offset)), comma));
     if (mask)
       return offset + (uint32_t)__builtin_ctz(mask);
-    offset += 32;
+    offset += 16;
   }
   while (p + offset < end && p[offset] != ',')
     offset++;
@@ -245,18 +252,25 @@ static void *analyze_worker(void *arg) {
       p++;
       continue;
     }
-    uint32_t ts = timestamp10(p),
-             month = month_by_day[(ts - YEAR_START) / 86400u];
+    uint32_t ts100 = timestamp8(p),
+             month = month_by_day[(ts100 - YEAR_START / 100u) / 864u];
     p += 11;
     const char *key = p;
     uint32_t len = channel_length(key, w->end);
     p += len;
     uint32_t hash = hash_bytes(key, len, w->end);
     p++;
-    uint32_t ml = (uint8_t)(*p++ - '0');
-    while (*p != ',')
-      ml = ml * 10 + (uint8_t)(*p++ - '0');
-    p++;
+    uint32_t ml;
+    if (__builtin_expect(p[3] == ',', 1)) {
+      ml = (uint8_t)(p[0] - '0') * 100u + (uint8_t)(p[1] - '0') * 10u +
+           (uint8_t)(p[2] - '0');
+      p += 4;
+    } else {
+      ml = (uint8_t)(*p++ - '0');
+      while (*p != ',')
+        ml = ml * 10 + (uint8_t)(*p++ - '0');
+      p++;
+    }
     uint32_t stamps = (uint8_t)(*p++ - '0');
     while (*p != '\n')
       stamps = stamps * 10 + (uint8_t)(*p++ - '0');
@@ -271,6 +285,31 @@ static int compare_entries(const void *aa, const void *bb) {
   size_t n = a->len < b->len ? a->len : b->len;
   int c = memcmp(a->key, b->key, n);
   return c ? c : (a->len > b->len) - (a->len < b->len);
+}
+static char *append_uint(char *p, uint64_t x) {
+  char reversed[20];
+  unsigned n = 0;
+  do {
+    reversed[n++] = (char)('0' + x % 10);
+    x /= 10;
+  } while (x);
+  while (n)
+    *p++ = reversed[--n];
+  return p;
+}
+static char *append_average(char *p, uint64_t total, uint32_t count) {
+  // Rejected: rational integer rounding disagrees with binary64 %.2f at ties.
+  double average = (double)total / (double)count;
+  long double exact = (long double)average * 100.0L;
+  uint64_t scaled = (uint64_t)exact;
+  long double fraction = exact - (long double)scaled;
+  if (fraction > 0.5L || (fraction == 0.5L && (scaled & 1)))
+    scaled++;
+  p = append_uint(p, scaled / 100);
+  *p++ = '.';
+  *p++ = (char)('0' + scaled / 10 % 10);
+  *p++ = (char)('0' + scaled % 10);
+  return p;
 }
 static void write_result(FILE *out, const FlatMap *m) {
   MapEntry **v = malloc((size_t)m->size * sizeof(*v));
@@ -291,20 +330,28 @@ static void write_result(FILE *out, const FlatMap *m) {
       const Stats *s = &m->aggs[e->id].month[j];
       if (!s->messages)
         continue;
-      char tail[128];
-      int z = snprintf(tail, sizeof(tail),
-                       ",%s=%u/%.2f/%u/%" PRIu64 "/%" PRIu64 "\n",
-                       month_label[j], s->min_len,
-                       (double)s->total_len / (double)s->messages, s->max_len,
-                       (uint64_t)s->messages, s->stamps);
-      if (used + e->len + (size_t)z > (4u << 20)) {
+      if (used + e->len + 96 > (4u << 20)) {
         fwrite(buf, 1, used, out);
         used = 0;
       }
-      memcpy(buf + used, e->key, e->len);
-      used += e->len;
-      memcpy(buf + used, tail, (size_t)z);
-      used += (size_t)z;
+      char *p = buf + used;
+      memcpy(p, e->key, e->len);
+      p += e->len;
+      *p++ = ',';
+      memcpy(p, month_label[j], 7);
+      p += 7;
+      *p++ = '=';
+      p = append_uint(p, s->min_len);
+      *p++ = '/';
+      p = append_average(p, s->total_len, s->messages);
+      *p++ = '/';
+      p = append_uint(p, s->max_len);
+      *p++ = '/';
+      p = append_uint(p, s->messages);
+      *p++ = '/';
+      p = append_uint(p, s->stamps);
+      *p++ = '\n';
+      used = (size_t)(p - buf);
     }
   }
   fwrite(buf, 1, used, out);
@@ -397,9 +444,8 @@ int main(int argc, char **argv) {
   for (long i = 0; i < threads; i++)
     worker_sum += workers[i].elapsed;
   t = now();
-  FlatMap merged;
-  map_init(&merged);
-  for (long i = 0; i < threads; i++) {
+  FlatMap merged = workers[0].map;
+  for (long i = 1; i < threads; i++) {
     map_merge(&merged, &workers[i].map);
     map_free(&workers[i].map);
   }

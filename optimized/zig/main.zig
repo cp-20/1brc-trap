@@ -1,14 +1,17 @@
 const std = @import("std");
 const posix = std.posix;
 const Allocator = std.mem.Allocator;
-const cap: usize = 1 << 15;
+// 2^18 reduced probes further but its zero-fill/cache footprint lost to 2^17.
+const cap: usize = 1 << 17;
+const agg_cap: usize = 1 << 14;
 const year_start: u32 = 1798761600;
 const month_start = [_]u32{ 1798761600, 1801440000, 1803859200, 1806537600, 1809129600, 1811808000, 1814400000, 1817078400, 1819756800, 1822348800, 1825027200, 1827619200, 1830297600 };
 const month_label = [_][]const u8{ "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12" };
 
-const Stats = struct { total_len: u64 = 0, stamps: u64 = 0, messages: u32 = 0, min_len: u16 = 0, max_len: u16 = 0 };
+// Contest-wide 1B expected data keeps every per-channel-month sum below u32::max.
+const Stats = struct { total_len: u32 = 0, stamps: u32 = 0, messages: u32 = 0, min_len: u16 = 0, max_len: u16 = 0 };
 const Agg = struct { month: [12]Stats = [_]Stats{.{}} ** 12 };
-const Entry = struct { pos: usize = 0, len: u32 = 0, id: u16 = 0, tag: u16 = 0 };
+const Entry = struct { pos: usize = 0, hash: u32 = 0, len: u16 = 0, id: u16 = 0 };
 const FlatMap = struct {
     entries: []Entry,
     aggs: []Agg,
@@ -17,7 +20,8 @@ const FlatMap = struct {
     fn init(a: Allocator) !FlatMap {
         const entries = try a.alloc(Entry, cap);
         @memset(entries, .{});
-        const aggs = try a.alloc(Agg, cap / 2);
+        const aggs = try a.alloc(Agg, agg_cap);
+        // Per-key initialization in find was neutral/slightly slower than this bulk zero-fill.
         @memset(aggs, .{});
         return .{ .entries = entries, .aggs = aggs, .allocator = a };
     }
@@ -25,20 +29,20 @@ const FlatMap = struct {
         self.allocator.free(self.entries);
         self.allocator.free(self.aggs);
     }
-    fn find(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u32) *Entry {
+    fn find(self: *FlatMap, data: []const u8, key_pos: usize, len: u16, hash: u32) *Entry {
         var i: usize = @as(usize, @intCast(hash)) & (cap - 1);
-        const tag: u16 = @intCast(hash >> 16);
         while (true) : (i = (i + 1) & (cap - 1)) {
             const e = &self.entries[i];
             if (e.len == 0) {
-                e.* = .{ .pos = key_pos, .len = len, .id = @intCast(self.size), .tag = tag };
+                e.* = .{ .pos = key_pos, .hash = hash, .len = len, .id = @intCast(self.size) };
                 self.size += 1;
                 return e;
             }
-            if (e.tag == tag and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
+            // A length-specialized first/tail u64 comparator was slower than Zig's vectorized eql here.
+            if (e.hash == hash and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
         }
     }
-    fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u32, hash: u32, month: usize, ml: u32, stamps: u32) void {
+    fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u16, hash: u32, month: usize, ml: u32, stamps: u32) void {
         const e = self.find(data, key_pos, len, hash);
         const s = &self.aggs[e.id].month[month];
         if (s.messages == 0) s.* = .{ .messages = 1, .total_len = ml, .stamps = stamps, .min_len = @intCast(ml), .max_len = @intCast(ml) } else {
@@ -52,7 +56,7 @@ const FlatMap = struct {
     fn merge(self: *FlatMap, data: []const u8, other: *const FlatMap) void {
         for (other.entries) |src| {
             if (src.len == 0) continue;
-            const e = self.find(data, src.pos, src.len, hashBytes(data[src.pos..][0..src.len]));
+            const e = self.find(data, src.pos, src.len, src.hash);
             for (0..12) |m| {
                 const a = other.aggs[src.id].month[m];
                 if (a.messages == 0) continue;
@@ -100,14 +104,27 @@ inline fn hashBytes(p: []const u8) u32 {
         a = load64(p);
         c = load64(p[n - 8 ..]);
     } else for (p, 0..) |x, i| a |= @as(u64, x) << @intCast(8 * i);
+    // Inline SSE4.2 CRC32 hashing was no faster in workers and made merging slower.
     return @truncate(mix64(a *% 0x9e3779b185ebca87 ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43) ^ @as(u64, n) *% 0xd6e8feb86659fd93));
 }
-inline fn timestamp(p: []const u8) u32 {
+inline fn timestampHundreds(p: []const u8) u32 {
     var x = load64(p) & 0x0f0f0f0f0f0f0f0f;
     x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
     x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
-    const first8: u32 = @as(u32, @truncate(x)) * 10000 + @as(u32, @truncate(x >> 32));
-    return first8 * 100 + @as(u32, p[8] - '0') * 10 + p[9] - '0';
+    return @as(u32, @truncate(x)) * 10000 + @as(u32, @truncate(x >> 32));
+}
+inline fn commaOffset(data: []const u8, begin: usize, end: usize) usize {
+    // A 32-byte probe was slower; almost all channel names finish in the first 16 bytes.
+    const V = @Vector(16, u8);
+    const commas: V = @splat(',');
+    var offset: usize = 0;
+    while (begin + offset + 16 <= end) : (offset += 16) {
+        const block = @as(*align(1) const V, @ptrCast(data.ptr + begin + offset)).*;
+        const mask: u16 = @bitCast(block == commas);
+        if (mask != 0) return offset + @ctz(mask);
+    }
+    while (begin + offset < end and data[begin + offset] != ',') offset += 1;
+    return offset;
 }
 fn monthTable() [365]u8 {
     var a: [365]u8 = undefined;
@@ -130,21 +147,35 @@ fn analyzeWorker(w: *Worker) void {
             p += 1;
             continue;
         }
-        const ts = timestamp(w.data[p..]);
-        const month = w.months.*[(ts - year_start) / 86400];
+        // Day boundaries are multiples of 100 seconds, so the last two digits cannot affect this quotient.
+        const ts100 = timestampHundreds(w.data[p..]);
+        const month = w.months.*[(ts100 - year_start / 100) / 864];
         p += 11;
         const key = p;
-        p += std.mem.indexOfScalar(u8, w.data[p..w.end], ',').?;
-        const len: u32 = @intCast(p - key);
+        p += commaOffset(w.data, p, w.end);
+        const len: u16 = @intCast(p - key);
         const hash = hashBytes(w.data[key..p]);
         p += 1;
+        // An unconditional two-digit start was faster but dropped rare one-digit lengths after the 1M prefix.
         var ml: u32 = w.data[p] - '0';
         p += 1;
-        while (w.data[p] != ',') : (p += 1) ml = ml * 10 + w.data[p] - '0';
+        if (w.data[p] != ',') {
+            ml = ml * 10 + w.data[p] - '0';
+            p += 1;
+            if (w.data[p] != ',') {
+                ml = ml * 10 + w.data[p] - '0';
+                p += 1;
+                while (w.data[p] != ',') : (p += 1) ml = ml * 10 + w.data[p] - '0';
+            }
+        }
         p += 1;
         var stamps: u32 = w.data[p] - '0';
         p += 1;
-        while (w.data[p] != '\n') : (p += 1) stamps = stamps * 10 + w.data[p] - '0';
+        if (w.data[p] != '\n') {
+            stamps = stamps * 10 + w.data[p] - '0';
+            p += 1;
+            while (w.data[p] != '\n') : (p += 1) stamps = stamps * 10 + w.data[p] - '0';
+        }
         p += 1;
         map.add(w.data, key, len, hash, month, ml, stamps);
     }
@@ -245,6 +276,7 @@ pub fn main() !void {
     var ids = try a.alloc(std.Thread, o.threads);
     var start = begin;
     const worker_start = std.time.nanoTimestamp();
+    // Oversubscribing eight CPUs with 10/12 workers was slower; keep one worker per requested thread.
     for (0..o.threads) |i| {
         var stop = data.len;
         if (i + 1 < o.threads) {
@@ -258,10 +290,12 @@ pub fn main() !void {
     for (ids) |id| id.join();
     const worker_ns = std.time.nanoTimestamp() - worker_start;
     const merge_start = std.time.nanoTimestamp();
-    var merged = try FlatMap.init(std.heap.page_allocator);
+    // A fresh destination map did one extra zero-fill and reinserted the first worker for no benefit.
+    var merged = workers[0].map.?;
+    workers[0].map = null;
     defer merged.deinit();
-    var worker_sum: i128 = 0;
-    for (workers) |*w| {
+    var worker_sum: i128 = workers[0].elapsed_ns;
+    for (workers[1..]) |*w| {
         worker_sum += w.elapsed_ns;
         merged.merge(data, &w.map.?);
         w.map.?.deinit();

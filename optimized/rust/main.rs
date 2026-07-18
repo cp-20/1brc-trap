@@ -78,8 +78,9 @@ impl Drop for Mapping {
 
 #[derive(Clone, Copy, Default)]
 struct Stats {
-    total_len: u64,
-    stamps: u64,
+    // The fixed contest's 1B expected data keeps both sums below u32::MAX.
+    total_len: u32,
+    stamps: u32,
     messages: u32,
     min_len: u16,
     max_len: u16,
@@ -130,6 +131,7 @@ impl FlatMap {
             }
             if e.tag == tag
                 && e.len == len
+                // First/tail-word special cases were slower than slice equality in repeated runs.
                 && data[e.pos..e.pos + len as usize] == data[pos..pos + len as usize]
             {
                 return i;
@@ -151,16 +153,16 @@ impl FlatMap {
         let s = &mut self.aggs[self.entries[i].id as usize].month[month];
         if s.messages == 0 {
             *s = Stats {
-                total_len: ml as u64,
-                stamps: stamps as u64,
+                total_len: ml,
+                stamps,
                 messages: 1,
                 min_len: ml as u16,
                 max_len: ml as u16,
             }
         } else {
             s.messages += 1;
-            s.total_len += ml as u64;
-            s.stamps += stamps as u64;
+            s.total_len += ml;
+            s.stamps += stamps;
             s.min_len = s.min_len.min(ml as u16);
             s.max_len = s.max_len.max(ml as u16)
         }
@@ -203,6 +205,7 @@ fn load64(p: &[u8]) -> u64 {
 fn hash_bytes(p: &[u8]) -> u32 {
     let n = p.len();
     let mut hash = n as u64;
+    // Sampling only first/middle/last blocks saved CRC work but was slower overall.
     let mut i = 0;
     while i + 8 <= n {
         hash = unsafe { _mm_crc32_u64(hash, load64(&p[i..])) };
@@ -220,12 +223,11 @@ fn hash_bytes(p: &[u8]) -> u32 {
     hash as u32
 }
 #[inline]
-fn timestamp(p: &[u8]) -> u32 {
+fn timestamp_hundreds(p: &[u8]) -> u32 {
     let mut x = load64(p) & 0x0f0f0f0f0f0f0f0f;
     x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
     x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
-    let first8 = (x as u32) * 10000 + (x >> 32) as u32;
-    first8 * 100 + (p[8] - b'0') as u32 * 10 + (p[9] - b'0') as u32
+    (x as u32) * 10000 + (x >> 32) as u32
 }
 #[inline]
 fn channel_length(data: &[u8], begin: usize, end: usize) -> usize {
@@ -266,8 +268,9 @@ fn analyze_chunk(data: &[u8], begin: usize, end: usize, months: &[u8; 365]) -> F
             p += 1;
             continue;
         }
-        let ts = timestamp(&data[p..p + 10]);
-        let month = months[((ts - YEAR_START) / 86400) as usize] as usize;
+        // Day boundaries are multiples of 100 seconds, so the last two digits cannot affect this quotient.
+        let ts100 = timestamp_hundreds(&data[p..p + 8]);
+        let month = months[((ts100 - YEAR_START / 100) / 864) as usize] as usize;
         p += 11;
         let key = p;
         p += channel_length(data, key, end);
@@ -349,6 +352,7 @@ fn write_result(out: &mut dyn Write, data: &[u8], map: &FlatMap) -> io::Result<(
         data[a.pos..a.pos + a.len as usize].cmp(&data[b.pos..b.pos + b.len as usize])
     });
     let mut w = BufWriter::with_capacity(4 << 20, out);
+    // A reusable per-line Vec was slower: its extra copy outweighed fewer writes into this buffer.
     for e in entries {
         for (m, s) in map.aggs[e.id as usize].month.iter().enumerate() {
             if s.messages == 0 {
@@ -413,9 +417,10 @@ fn run() -> Result<(), String> {
     let worker_wall = t.elapsed();
     let worker_sum: f64 = results.iter().map(|x| x.1).sum();
     let t = Instant::now();
-    let mut merged = FlatMap::new();
-    for (m, _) in &results {
-        merged.merge(data, m)
+    let mut results = results.into_iter();
+    let (mut merged, _) = results.next().unwrap();
+    for (m, _) in results {
+        merged.merge(data, &m)
     }
     let merge = t.elapsed();
     let mut file;

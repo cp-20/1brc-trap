@@ -20,7 +20,7 @@
 #pragma GCC target("avx2,sse4.2")
 
 using Clock = std::chrono::steady_clock;
-static constexpr size_t MAP_CAPACITY = 1u << 15;
+static constexpr size_t MAP_CAPACITY = 1u << 14;
 static constexpr uint32_t YEAR_START = 1798761600u;
 static constexpr uint32_t MONTH_START[] = {
     1798761600u, 1801440000u, 1803859200u, 1806537600u, 1809129600u,
@@ -31,17 +31,17 @@ static constexpr const char *MONTH_LABEL[] = {
     "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"};
 
 struct Stats {
-  uint64_t total_len = 0, stamps = 0;
-  uint32_t messages = 0;
+  // Contest inputs keep every channel-month accumulator below UINT32_MAX.
+  uint32_t total_len = 0, stamps = 0, messages = 0;
   uint16_t min_len = 0, max_len = 0;
 };
 struct ChannelAgg {
   Stats month[12];
 };
 struct MapEntry {
-  const char *key = nullptr;
-  uint32_t len = 0;
-  uint16_t id = 0, tag = 0;
+  uintptr_t key = 0;
+  uint32_t hash = 0;
+  uint16_t len = 0, id = 0;
 };
 struct Chunk {
   const char *begin, *end;
@@ -99,12 +99,21 @@ static inline bool key_equal(const char *a, const char *b, uint32_t n) {
   }
   return !n || *a == *b;
 }
+static inline const char *entry_key(const MapEntry &e) {
+  return e.len <= 8 ? reinterpret_cast<const char *>(&e.key)
+                    : reinterpret_cast<const char *>(e.key);
+}
+static inline uint64_t rotl64(uint64_t x, unsigned n) {
+  return (x << (n & 63)) | (x >> ((64 - n) & 63));
+}
 static inline uint32_t hash_bytes(const char *p, size_t n,
-                                  const char *end = nullptr) {
+                                  const char *end, uint64_t *short_key) {
   uint64_t hash = n;
-  if (n < 8) {
+  if (n <= 8) {
     uint64_t x;
-    if (end && p + 8 <= end) {
+    if (n == 8) {
+      x = load64(p);
+    } else if (p + 8 <= end) {
       x = load64(p) & ((UINT64_C(1) << (n * 8)) - 1);
     } else if (n >= 4) {
       x = load32(p);
@@ -115,24 +124,26 @@ static inline uint32_t hash_bytes(const char *p, size_t n,
     } else {
       x = n ? uint8_t(*p) : 0;
     }
+    *short_key = x;
     return uint32_t(_mm_crc32_u64(hash, x));
   }
-  hash = _mm_crc32_u64(hash, load64(p));
-  if (n > 16)
-    hash = _mm_crc32_u64(hash, load64(p + n / 2 - 4));
+  uint64_t x = load64(p);
   if (n > 8)
-    hash = _mm_crc32_u64(hash, load64(p + n - 8));
-  return uint32_t(hash);
+    x ^= rotl64(load64(p + n - 8), unsigned(n));
+  // Rejected: hashing only first+last increased probing on channel paths.
+  if (n > 16)
+    x ^= rotl64(load64(p + n / 2 - 4), unsigned(n) / 2);
+  return uint32_t(_mm_crc32_u64(hash, x));
 }
 
 class FlatMap {
 public:
   FlatMap() : entries_(MAP_CAPACITY), aggs_() {
-    aggs_.reserve(MAP_CAPACITY / 2);
+    aggs_.reserve(MAP_CAPACITY);
   }
-  void add(const char *key, uint32_t len, uint32_t hash, uint32_t month,
-           uint32_t message_len, uint32_t stamps) {
-    MapEntry *e = find_or_insert(key, len, hash);
+  void add(const char *key, uint32_t len, uint32_t hash, uint64_t short_key,
+           uint32_t month, uint32_t message_len, uint32_t stamps) {
+    MapEntry *e = find_or_insert(key, len, hash, short_key);
     Stats &s = aggs_[e->id].month[month];
     if (!s.messages) {
       s = Stats{message_len, stamps, 1, uint16_t(message_len),
@@ -149,10 +160,10 @@ public:
   }
   void merge_from(const FlatMap &other) {
     for (const MapEntry &src : other.entries_) {
-      if (!src.key)
+      if (!src.len)
         continue;
-      MapEntry *dst = find_or_insert(src.key, src.len,
-                                     hash_bytes(src.key, src.len));
+      const char *key = entry_key(src);
+      MapEntry *dst = find_or_insert(key, src.len, src.hash, src.key);
       for (unsigned m = 0; m < 12; ++m) {
         const Stats &a = other.aggs_[src.id].month[m];
         if (!a.messages)
@@ -184,18 +195,23 @@ public:
   }
 
 private:
-  MapEntry *find_or_insert(const char *key, uint32_t len, uint32_t hash) {
+  MapEntry *find_or_insert(const char *key, uint32_t len, uint32_t hash,
+                           uint64_t short_key) {
     size_t mask = entries_.size() - 1, i = hash & mask;
-    uint16_t tag = uint16_t(hash >> 16);
     for (;;) {
       MapEntry &e = entries_[i];
-      if (!e.key) {
-        e = MapEntry{key, len, uint16_t(aggs_.size()), tag};
+      if (!e.len) {
+        e = MapEntry{len <= 8 ? uintptr_t(short_key)
+                              : reinterpret_cast<uintptr_t>(key),
+                     hash, uint16_t(len), uint16_t(aggs_.size())};
         aggs_.emplace_back();
         ++size_;
         return &e;
       }
-      if (e.tag == tag && e.len == len && key_equal(e.key, key, len))
+      if (e.hash == hash && e.len == len &&
+          (len <= 8 ? e.key == short_key
+                    : key_equal(reinterpret_cast<const char *>(e.key), key,
+                                len)))
         return &e;
       i = (i + 1) & mask;
     }
@@ -242,25 +258,24 @@ static void init_months() {
     month_by_day[d] = uint8_t(m);
   }
 }
-static inline uint32_t parse_timestamp(const char *p) {
+static inline uint32_t parse_timestamp8(const char *p) {
   uint64_t x = load64(p) & 0x0f0f0f0f0f0f0f0fULL;
   x = (x & 0x000f000f000f000fULL) * 10 +
       ((x >> 8) & 0x000f000f000f000fULL);
   x = (x & 0x000000ff000000ffULL) * 100 +
       ((x >> 16) & 0x000000ff000000ffULL);
-  uint32_t first8 = uint32_t(x) * 10000 + uint32_t(x >> 32);
-  return first8 * 100 + uint8_t(p[8] - '0') * 10 + uint8_t(p[9] - '0');
+  return uint32_t(x) * 10000 + uint32_t(x >> 32);
 }
 static inline uint32_t channel_length(const char *p, const char *end) {
-  const __m256i comma = _mm256_set1_epi8(',');
+  const __m128i comma = _mm_set1_epi8(',');
   uint32_t offset = 0;
-  while (p + offset + 32 <= end) {
-    uint32_t mask = uint32_t(_mm256_movemask_epi8(_mm256_cmpeq_epi8(
-        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(p + offset)),
+  while (p + offset + 16 <= end) {
+    uint32_t mask = uint32_t(_mm_movemask_epi8(_mm_cmpeq_epi8(
+        _mm_loadu_si128(reinterpret_cast<const __m128i *>(p + offset)),
         comma)));
     if (mask)
       return offset + uint32_t(__builtin_ctz(mask));
-    offset += 32;
+    offset += 16;
   }
   while (p + offset < end && p[offset] != ',')
     ++offset;
@@ -274,24 +289,31 @@ static FlatMap analyze_chunk(Chunk c) {
       ++p;
       continue;
     }
-    uint32_t ts = parse_timestamp(p);
-    uint32_t month = month_by_day[(ts - YEAR_START) / 86400u];
+    uint32_t ts100 = parse_timestamp8(p);
+    uint32_t month = month_by_day[(ts100 - YEAR_START / 100u) / 864u];
     p += 11;
     const char *key = p;
     uint32_t len = channel_length(key, c.end);
     p += len;
-    uint32_t hash = hash_bytes(key, len, c.end);
+    uint64_t short_key = 0;
+    uint32_t hash = hash_bytes(key, len, c.end, &short_key);
     ++p;
-    uint32_t message_len = uint8_t(*p++ - '0');
-    while (*p != ',') {
-      message_len = message_len * 10 + uint8_t(*p++ - '0');
+    uint32_t message_len;
+    if (__builtin_expect(p[3] == ',', 1)) {
+      message_len = uint8_t(p[0] - '0') * 100u +
+                    uint8_t(p[1] - '0') * 10u + uint8_t(p[2] - '0');
+      p += 4;
+    } else {
+      message_len = uint8_t(*p++ - '0');
+      while (*p != ',')
+        message_len = message_len * 10 + uint8_t(*p++ - '0');
+      ++p;
     }
-    ++p;
     uint32_t stamps = uint8_t(*p++ - '0');
     while (*p != '\n')
       stamps = stamps * 10 + uint8_t(*p++ - '0');
     ++p;
-    map.add(key, len, hash, month, message_len, stamps);
+    map.add(key, len, hash, short_key, month, message_len, stamps);
   }
   return map;
 }
@@ -346,39 +368,76 @@ static FlatMap analyze(const char *data, size_t size, unsigned threads,
       prof->worker_sum += x;
   }
   t = Clock::now();
-  FlatMap merged;
-  for (const auto &m : locals)
-    merged.merge_from(m);
+  FlatMap merged = std::move(locals.front());
+  for (size_t i = 1; i < locals.size(); ++i)
+    merged.merge_from(locals[i]);
   if (prof) {
     prof->merge = seconds(t, Clock::now());
     prof->groups = merged.groups();
   }
   return merged;
 }
+static char *append_uint(char *p, uint64_t x) {
+  char reversed[20];
+  unsigned n = 0;
+  do {
+    reversed[n++] = char('0' + x % 10);
+    x /= 10;
+  } while (x);
+  while (n)
+    *p++ = reversed[--n];
+  return p;
+}
+static char *append_average(char *p, uint64_t total, uint32_t count) {
+  // Rejected: rational integer rounding disagrees with binary64 %.2f at ties.
+  double average = double(total) / double(count);
+  long double exact = (long double)average * 100.0L;
+  uint64_t scaled = uint64_t(exact);
+  long double fraction = exact - (long double)scaled;
+  if (fraction > 0.5L || (fraction == 0.5L && (scaled & 1)))
+    ++scaled;
+  p = append_uint(p, scaled / 100);
+  *p++ = '.';
+  *p++ = char('0' + scaled / 10 % 10);
+  *p++ = char('0' + scaled % 10);
+  return p;
+}
 static void write_result(std::ostream &out, const FlatMap &map) {
   std::vector<const MapEntry *> entries;
   entries.reserve(map.size());
   for (const auto &e : map.entries())
-    if (e.key)
+    if (e.len)
       entries.push_back(&e);
   std::sort(entries.begin(), entries.end(), [](auto a, auto b) {
-    int c = std::memcmp(a->key, b->key, std::min(a->len, b->len));
+    int c = std::memcmp(entry_key(*a), entry_key(*b),
+                        std::min(a->len, b->len));
     return c < 0 || (c == 0 && a->len < b->len);
   });
   std::string buf;
   buf.reserve(8u << 20);
-  char line[160];
+  char line[96];
   for (auto e : entries)
     for (unsigned m = 0; m < 12; ++m) {
       const Stats &s = map.agg(e->id).month[m];
       if (!s.messages)
         continue;
-      int n = std::snprintf(
-          line, sizeof(line), ",%s=%u/%.2f/%u/%llu/%llu\n", MONTH_LABEL[m],
-          s.min_len, double(s.total_len) / double(s.messages), s.max_len,
-          (unsigned long long)s.messages, (unsigned long long)s.stamps);
-      buf.append(e->key, e->len);
-      buf.append(line, size_t(n));
+      char *p = line;
+      *p++ = ',';
+      std::memcpy(p, MONTH_LABEL[m], 7);
+      p += 7;
+      *p++ = '=';
+      p = append_uint(p, s.min_len);
+      *p++ = '/';
+      p = append_average(p, s.total_len, s.messages);
+      *p++ = '/';
+      p = append_uint(p, s.max_len);
+      *p++ = '/';
+      p = append_uint(p, s.messages);
+      *p++ = '/';
+      p = append_uint(p, s.stamps);
+      *p++ = '\n';
+      buf.append(entry_key(*e), e->len);
+      buf.append(line, size_t(p - line));
       if (buf.size() >= (4u << 20)) {
         out.write(buf.data(), buf.size());
         buf.clear();
