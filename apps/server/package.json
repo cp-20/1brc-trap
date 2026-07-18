@@ -11,12 +11,14 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "bun dist/index.js",
+    "build": "tsc -p tsconfig.json --noEmit && bun build src/index.ts --target=bun --outdir=dist/bundle --sourcemap=linked --minify --external cpu-features",
+    "start": "bun --smol dist/bundle/index.js",
+    "profile:memory:server": "bun --inspect=127.0.0.1:16499/memory-profile scripts/profile-memory-server.ts",
+    "profile:memory:load": "bun scripts/profile-memory-load.ts",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:migrate": "bun src/migrate.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p scripts/tsconfig.json",
     "test": "vitest run src",
     "test:coverage": "vitest run src --coverage --coverage.include='src/**/*.ts' --coverage.exclude='src/**/*.test.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.thresholds.lines=25"
   },

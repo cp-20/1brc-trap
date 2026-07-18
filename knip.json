@@ -12,7 +12,7 @@
       "entry": ["image/measure.mjs"]
     },
     "apps/server": {
-      "entry": ["src/index.ts"]
+      "entry": ["src/index.ts", "scripts/*.ts"]
     },
     "infra/cdk": {
       "entry": ["bin/onebrc.ts"]

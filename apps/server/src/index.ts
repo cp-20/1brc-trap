@@ -50,7 +50,16 @@ const worker = createBenchmarkWorkerService(database, runner, config, logger);
 await worker.start();
 
 const server = Bun.serve({
-  fetch: app.fetch,
+  fetch(request, runtime) {
+    const path = new URL(request.url).pathname;
+    if (
+      path.endsWith("/events") ||
+      (request.method === "POST" && path === "/api/v1/submissions")
+    ) {
+      runtime.timeout(request, 0);
+    }
+    return app.fetch(request);
+  },
   hostname: "0.0.0.0",
   port: config.PORT,
 });

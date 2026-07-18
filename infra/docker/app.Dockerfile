@@ -66,4 +66,4 @@ ENV NODE_ENV=production STATIC_ROOT=/app/apps/web/dist
 USER onebrc
 EXPOSE 3000 6499
 ENTRYPOINT ["/usr/local/bin/app-entrypoint"]
-CMD ["/opt/bun/bin/bun", "/app/apps/server/dist/index.js"]
+CMD ["/opt/bun/bin/bun", "--smol", "/app/apps/server/dist/bundle/index.js"]

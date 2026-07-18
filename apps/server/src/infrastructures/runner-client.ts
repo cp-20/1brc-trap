@@ -177,12 +177,14 @@ async function exec(
         channel.setEncoding("utf8");
         channel.on("data", (chunk: string) => (stdout += chunk));
         channel.stderr.setEncoding("utf8");
-        channel.stderr.on("data", (chunk: string) => (stderr += chunk));
+        channel.stderr.on(
+          "data",
+          (chunk: string) => (stderr = `${stderr}${chunk}`.slice(-4096)),
+        );
         channel.on("close", (code: number) => {
           clearTimeout(timer);
           if (code === 0) resolve(stdout);
-          else
-            reject(new Error(`runner exited ${code}: ${stderr.slice(-4096)}`));
+          else reject(new Error(`runner exited ${code}: ${stderr}`));
         });
       });
     });
@@ -209,14 +211,14 @@ async function execWithInput(
         let stderr = "";
         channel.resume();
         channel.stderr.setEncoding("utf8");
-        channel.stderr.on("data", (chunk: string) => (stderr += chunk));
+        channel.stderr.on(
+          "data",
+          (chunk: string) => (stderr = `${stderr}${chunk}`.slice(-4096)),
+        );
         channel.on("close", (code: number) => {
           clearTimeout(timer);
           if (code === 0) resolve();
-          else
-            reject(
-              new Error(`runner upload exited ${code}: ${stderr.slice(-4096)}`),
-            );
+          else reject(new Error(`runner upload exited ${code}: ${stderr}`));
         });
         createReadStream(path).once("error", reject).pipe(channel);
       });

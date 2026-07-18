@@ -101,7 +101,10 @@ export function createSubmissionService(
                 createHash("sha256").update(parsed.source).digest("hex"),
                 parsed.source,
               )
-              .map(() => parsed),
+              .map(() => {
+                const { source: _source, ...stored } = parsed;
+                return stored;
+              }),
           )
           .andThen((parsed) =>
             runner
