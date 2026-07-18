@@ -95,7 +95,7 @@ function InputOutputSection({
 
       <h3>入力フォーマット</h3>
       <p>
-        1行が1メッセージです。時刻はUnix秒、メッセージ長とスタンプ数は0以上の整数です。
+        1行が1メッセージです。時刻はUnix秒、メッセージ長とスタンプ数は0以上の整数です。投稿時刻は2027年の1月1日から2027年12月31日までの範囲です。
       </p>
       <CodeBlock>
         unix_timestamp,channel_path,message_length,stamp_count
