@@ -1,9 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, vi } from "bun:test";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithFileLock } from "./run-lock.js";
+import { runWithFileLock, waitForFileLock } from "./run-lock.js";
 
 describe("runner file lock", () => {
   it("同時実行を拒否し、計測プロセスが異常終了しても同じlock fileを再利用できる", async () => {
@@ -26,6 +26,27 @@ describe("runner file lock", () => {
       expect(
         await runWithFileLock(lockFile, process.execPath, ["-e", ""]),
       ).toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("実行中jobの終了を待ってlockを回収する", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "1brc-run-lock-"));
+    const lockFile = join(directory, "run.lock");
+    const acquiredMarker = join(directory, "acquired");
+    try {
+      const running = runWithFileLock(lockFile, process.execPath, [
+        "-e",
+        `require("node:fs").writeFileSync(${JSON.stringify(acquiredMarker)}, ""); setTimeout(() => {}, 200)`,
+      ]);
+      await waitForFile(acquiredMarker);
+      const whileBusy = vi.fn(async () => undefined);
+
+      await waitForFileLock(lockFile, 1_000, whileBusy);
+
+      expect(whileBusy).toHaveBeenCalled();
+      expect(await running).toBe(0);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

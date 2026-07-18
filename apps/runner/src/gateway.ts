@@ -8,6 +8,7 @@ import {
   rm,
   stat,
   utimes,
+  writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -26,7 +27,7 @@ import { z } from "zod";
 
 import { compareOutput } from "./compare.js";
 import { buildContainerCreateArgs } from "./container-command.js";
-import { runWithFileLock } from "./run-lock.js";
+import { runWithFileLock, waitForFileLock } from "./run-lock.js";
 
 const config = z
   .object({
@@ -57,6 +58,9 @@ try {
       break;
     case "cleanup":
       await cleanup(parts);
+      break;
+    case "cancel":
+      await cancel(parts);
       break;
     default:
       throw new Error("unsupported runner command");
@@ -157,6 +161,7 @@ async function benchmark(
   const cachedInput = await cacheInput(dataset, input);
   const durations: string[] = [];
   for (let attempt = 1; attempt <= benchmarkPolicy.repetitions; attempt += 1) {
+    await throwIfCancelled(id);
     const attemptResult = await runAttempt(
       id,
       kind,
@@ -280,6 +285,37 @@ async function cleanup(args: string[]) {
     force: true,
   });
   process.stdout.write("ok\n");
+}
+
+async function cancel(args: string[]) {
+  const [id] = args;
+  validateId(id);
+  await mkdir(jobDirectory(id), { recursive: true, mode: 0o700 });
+  await writeFile(join(jobDirectory(id), "cancelled"), "", { mode: 0o600 });
+  const removeContainers = async () => {
+    const containers = await execute(
+      "docker",
+      ["ps", "-aq", "--filter", `name=onebrc-${id}-`],
+      30_000,
+    );
+    const ids = containers.trim().split(/\s+/).filter(Boolean);
+    if (ids.length > 0) await execute("docker", ["rm", "-f", ...ids], 30_000);
+  };
+  await removeContainers();
+  await waitForFileLock(
+    join(config.RUNNER_ROOT, "run.lock"),
+    30_000,
+    removeContainers,
+  );
+  await cleanup([id]);
+}
+
+async function throwIfCancelled(id: string) {
+  const cancelled = await access(join(jobDirectory(id), "cancelled")).then(
+    () => true,
+    () => false,
+  );
+  if (cancelled) throw new Error("job cancelled");
 }
 
 function jobDirectory(id: string) {

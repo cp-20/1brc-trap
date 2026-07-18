@@ -17,3 +17,19 @@ export async function runWithFileLock(
   );
   return exitCode === 75 ? "busy" : (exitCode ?? 1);
 }
+
+export async function waitForFileLock(
+  lockFile: string,
+  timeoutMs: number,
+  whileBusy: () => Promise<void>,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while ((await runWithFileLock(lockFile, "true", [])) === "busy") {
+    await whileBusy();
+    if (Date.now() >= deadline)
+      throw new Error("runner cancellation timed out");
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 100);
+    });
+  }
+}

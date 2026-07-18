@@ -27,6 +27,14 @@ const submissionRepository = createSubmissionRepository(database);
 const administrationRepository = createAdminRepository(database);
 const accountRepository = createAccountRepository(database);
 const datasets = createR2Signer(config);
+const interruptedRuns = await submissionRepository.interruptedRuns();
+if (interruptedRuns.isErr()) throw interruptedRuns.error;
+for (const { id } of interruptedRuns.value) {
+  const cancelled = await runner.cancel(id);
+  if (cancelled.isErr()) throw cancelled.error;
+}
+const failedRuns = await submissionRepository.failInterruptedRuns();
+if (failedRuns.isErr()) throw failedRuns.error;
 const interruptedUploads =
   await submissionRepository.discardInterruptedUploads();
 if (interruptedUploads.isErr()) throw interruptedUploads.error;

@@ -63,16 +63,6 @@ export function createBenchmarkWorkerService(
         if (acquired) {
           const environment = await validateEnvironment();
           if (environment.isErr()) throw environment.error;
-          const recovered = await database.result(
-            database.orm
-              .update(submissions)
-              .set({
-                status: "infrastructure_error",
-                infrastructure_error: "worker restarted during benchmark",
-              })
-              .where(eq(submissions.status, "running")),
-          );
-          if (recovered.isErr()) throw recovered.error;
           logger.info("benchmark worker started", {
             environmentId: config.BENCHMARK_ENVIRONMENT_ID,
           });

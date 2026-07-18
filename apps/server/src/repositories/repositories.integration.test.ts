@@ -110,7 +110,7 @@ describe("submission reservation", () => {
     expect(await database.orm.select().from(users)).toHaveLength(0);
   });
 
-  it("再起動時に中断されたuploadingだけを即時回収する", async () => {
+  it("再起動時にuploadingを回収し、runningを失敗扱いにする", async () => {
     await database.orm.insert(users).values({ username: "user" });
     await database.orm.insert(submissions).values([
       {
@@ -125,19 +125,32 @@ describe("submission reservation", () => {
         status: "queued",
         upload_started_at: new Date(),
       },
+      {
+        id: "2198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "user",
+        status: "running",
+        upload_started_at: new Date(),
+      },
     ]);
 
-    const result =
+    const uploads =
       await createSubmissionRepository(database).discardInterruptedUploads();
+    const repository = createSubmissionRepository(database);
+    const runs = await repository.interruptedRuns();
+    const failed = await repository.failInterruptedRuns();
 
-    expect(result._unsafeUnwrap()).toEqual([
+    expect(uploads._unsafeUnwrap()).toEqual([
       "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
     ]);
+    expect(runs._unsafeUnwrap()).toEqual([
+      { id: "2198d9ec-9024-4d69-8bb8-9c13a73f6768" },
+    ]);
+    expect(failed.isOk()).toBe(true);
     expect(
       (await database.orm.select().from(submissions)).map(
         ({ status }) => status,
       ),
-    ).toEqual(["queued"]);
+    ).toEqual(["queued", "infrastructure_error"]);
   });
 });
 

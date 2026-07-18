@@ -184,6 +184,27 @@ export function createSubmissionRepository(database: Database) {
         return ok(rows.map(({ id }) => id));
       });
     },
+    interruptedRuns() {
+      return database.result(
+        database.orm
+          .select({ id: submissions.id })
+          .from(submissions)
+          .where(eq(submissions.status, "running")),
+      );
+    },
+    failInterruptedRuns() {
+      return database
+        .result(
+          database.orm
+            .update(submissions)
+            .set({
+              status: "infrastructure_error",
+              infrastructure_error: "worker restarted during benchmark",
+            })
+            .where(eq(submissions.status, "running")),
+        )
+        .map(() => undefined);
+    },
     byUser(username: string) {
       const prior = alias(submissions, "prior_submission");
       const queued = alias(submissions, "queued_submission");

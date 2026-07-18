@@ -27,6 +27,7 @@ export interface RunnerClient {
     submissionId: string,
     kind: ExecutionKind,
   ): ResultAsync<RunnerJobResult, AppError>;
+  cancel(submissionId: string): ResultAsync<void, AppError>;
   cleanup(submissionId: string): ResultAsync<void, AppError>;
 }
 
@@ -86,6 +87,14 @@ export async function createRunnerClient(
         (cause) => runnerError(logger, "run", submissionId, cause),
       );
     },
+    cancel(submissionId) {
+      return ResultAsync.fromPromise(
+        exec(connection, `cancel ${submissionId}`, 60_000).then(
+          () => undefined,
+        ),
+        (cause) => runnerError(logger, "cancel", submissionId, cause),
+      );
+    },
     cleanup(submissionId) {
       return ResultAsync.fromPromise(
         exec(connection, `cleanup ${submissionId}`, 30_000).then(
@@ -112,7 +121,7 @@ function createHostVerifier(expectedFingerprint: string) {
 
 function runnerError(
   logger: Logger,
-  operation: "upload" | "run" | "cleanup",
+  operation: "upload" | "run" | "cancel" | "cleanup",
   submissionId: string,
   cause: unknown,
 ) {
