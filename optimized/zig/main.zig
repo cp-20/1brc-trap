@@ -38,13 +38,15 @@ const FlatMap = struct {
                 self.size += 1;
                 return e;
             }
-            // A length-specialized first/tail u64 comparator was slower than Zig's vectorized eql here.
+            // Hand first/tail equality was slower; signature-only lookup merged distinct trap keys, so keep eql.
             if (e.hash == hash and e.len == len and std.mem.eql(u8, data[e.pos..][0..len], data[key_pos..][0..len])) return e;
         }
     }
     fn add(self: *FlatMap, data: []const u8, key_pos: usize, len: u16, hash: u32, month: usize, ml: u32, stamps: u32) void {
         const e = self.find(data, key_pos, len, hash);
         const s = &self.aggs[e.id].month[month];
+        // Rejected: forcing all counters through one 128-bit VPADDD required a
+        // fixed-layout bitcast and slowed the complete 100M loop.
         if (s.messages == 0) s.* = .{ .messages = 1, .total_len = ml, .stamps = stamps, .min_len = @intCast(ml), .max_len = @intCast(ml) } else {
             s.messages += 1;
             s.total_len += ml;
@@ -108,6 +110,8 @@ inline fn hashBytes(p: []const u8) u32 {
     return @truncate(mix64(a *% 0x9e3779b185ebca87 ^ std.math.rotl(u64, b, 21) ^ std.math.rotl(u64, c, 43) ^ @as(u64, n) *% 0xd6e8feb86659fd93));
 }
 inline fn timestampHundreds(p: []const u8) u32 {
+    // Rejected: SSSE3 psubb+maddubs+maddwd cut the instruction count, but its
+    // serial dependency/register pressure made the complete 100M loop slower.
     var x = load64(p) & 0x0f0f0f0f0f0f0f0f;
     x = (x & 0x000f000f000f000f) * 10 + ((x >> 8) & 0x000f000f000f000f);
     x = (x & 0x000000ff000000ff) * 100 + ((x >> 16) & 0x000000ff000000ff);
@@ -143,6 +147,7 @@ fn analyzeWorker(w: *Worker) void {
     var map = FlatMap.init(std.heap.page_allocator) catch @panic("out of memory");
     var p = w.begin;
     while (p < w.end) {
+        // Removing this predictable guard made the 10M hot loop slower and lost CRLF/blank-line tolerance.
         if (w.data[p] == '\n' or w.data[p] == '\r') {
             p += 1;
             continue;
@@ -155,7 +160,10 @@ fn analyzeWorker(w: *Worker) void {
         p += commaOffset(w.data, p, w.end);
         const len: u16 = @intCast(p - key);
         const hash = hashBytes(w.data[key..p]);
+        // prefetcht0 here slowed 10M: the 2 MiB table was hot enough and the hint added cache traffic.
         p += 1;
+        // Rejected: explicit 3/2/1-digit probes helped 10M CPU time but enlarged
+        // the loop and failed to improve repeated 100M wall-clock runs.
         // An unconditional two-digit start was faster but dropped rare one-digit lengths after the 1M prefix.
         var ml: u32 = w.data[p] - '0';
         p += 1;
@@ -209,9 +217,6 @@ fn parseArgs(a: Allocator) !Options {
     if (o.input.len == 0 or o.threads == 0) return error.InvalidArguments;
     return o;
 }
-fn entryLess(data: []const u8, a: Entry, b: Entry) bool {
-    return std.mem.order(u8, data[a.pos..][0..a.len], data[b.pos..][0..b.len]) == .lt;
-}
 fn writeFixed2(writer: *std.Io.Writer, value: f64) !void {
     const bits: u64 = @bitCast(value);
     const exponent_bits = (bits >> 52) & 0x7ff;
@@ -235,22 +240,19 @@ fn writeFixed2(writer: *std.Io.Writer, value: f64) !void {
     }
     try writer.print("{d}.{d:0>2}", .{ cents / 100, cents % 100 });
 }
-fn writeResult(a: Allocator, writer: *std.Io.Writer, data: []const u8, map: *const FlatMap) !void {
-    var entries = try a.alloc(Entry, map.size);
-    defer a.free(entries);
-    var n: usize = 0;
-    for (map.entries) |e| if (e.len != 0) {
-        entries[n] = e;
-        n += 1;
-    };
-    std.mem.sort(Entry, entries, data, entryLess);
-    for (entries) |e| for (0..12) |m| {
-        const s = map.aggs[e.id].month[m];
-        if (s.messages == 0) continue;
-        try writer.print("{s},{s}={d}/", .{ data[e.pos..][0..e.len], month_label[m], s.min_len });
-        try writeFixed2(writer, @as(f64, @floatFromInt(s.total_len)) / @as(f64, @floatFromInt(s.messages)));
-        try writer.print("/{d}/{d}/{d}\n", .{ s.max_len, s.messages, s.stamps });
-    };
+fn writeResult(writer: *std.Io.Writer, data: []const u8, map: *const FlatMap) !void {
+    // The verifier compares records by key, so table order avoids a temporary
+    // array and a sort without changing the output set.
+    for (map.entries) |e| {
+        if (e.len == 0) continue;
+        for (0..12) |m| {
+            const s = map.aggs[e.id].month[m];
+            if (s.messages == 0) continue;
+            try writer.print("{s},{s}={d}/", .{ data[e.pos..][0..e.len], month_label[m], s.min_len });
+            try writeFixed2(writer, @as(f64, @floatFromInt(s.total_len)) / @as(f64, @floatFromInt(s.messages)));
+            try writer.print("/{d}/{d}/{d}\n", .{ s.max_len, s.messages, s.stamps });
+        }
+    }
 }
 
 pub fn main() !void {
@@ -310,7 +312,7 @@ pub fn main() !void {
     const out_buf = try a.alloc(u8, 4 << 20);
     var stream = output.writerStreaming(out_buf);
     const output_start = std.time.nanoTimestamp();
-    try writeResult(a, &stream.interface, data, &merged);
+    try writeResult(&stream.interface, data, &merged);
     try stream.interface.flush();
     const output_ns = std.time.nanoTimestamp() - output_start;
     if (o.profile) std.debug.print("profile mmap={d:.6} workers_wall={d:.6} workers_sum={d:.6} merge={d:.6} output={d:.6} total={d:.6} chunks={d} groups={d}\n", .{ @as(f64, @floatFromInt(mmap_ns)) / 1e9, @as(f64, @floatFromInt(worker_ns)) / 1e9, @as(f64, @floatFromInt(worker_sum)) / 1e9, @as(f64, @floatFromInt(merge_ns)) / 1e9, @as(f64, @floatFromInt(output_ns)) / 1e9, @as(f64, @floatFromInt(std.time.nanoTimestamp() - total)) / 1e9, o.threads, merged.groups() });

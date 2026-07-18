@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+// Rejected: enabling BMI/BMI2 emitted BZHI/SHLX but slowed the official build.
 #pragma GCC target("avx2,sse4.2")
 
 using Clock = std::chrono::steady_clock;
@@ -30,13 +31,20 @@ static constexpr const char *MONTH_LABEL[] = {
     "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
     "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"};
 
-struct Stats {
+struct alignas(16) Stats {
   // Contest inputs keep every channel-month accumulator below UINT32_MAX.
-  uint32_t total_len = 0, stamps = 0, messages = 0;
-  uint16_t min_len = 0, max_len = 0;
+  uint32_t total_len, stamps, messages;
+  // The sentinel makes the overwhelmingly hot update path branch-free.
+  uint16_t min_len, max_len;
 };
 struct ChannelAgg {
   Stats month[12];
+  ChannelAgg() {
+    // Rejected: six unaligned 256-bit stores lost to twelve aligned stores.
+    const __m128i empty = _mm_set_epi32(0x0000ffff, 0, 0, 0);
+    for (Stats &s : month)
+      _mm_store_si128(reinterpret_cast<__m128i *>(&s), empty);
+  }
 };
 struct MapEntry {
   uintptr_t key = 0;
@@ -71,6 +79,8 @@ static inline uint16_t load16(const char *p) {
   return x;
 }
 static inline bool key_equal(const char *a, const char *b, uint32_t n) {
+  // Rejected: two 16-byte SIMD comparisons for long keys used more vector
+  // uops/registers and lost to the predicted scalar comparisons below.
   if (n >= 8) {
     if (load64(a) != load64(b))
       return false;
@@ -145,18 +155,14 @@ public:
            uint32_t month, uint32_t message_len, uint32_t stamps) {
     MapEntry *e = find_or_insert(key, len, hash, short_key);
     Stats &s = aggs_[e->id].month[month];
-    if (!s.messages) {
-      s = Stats{message_len, stamps, 1, uint16_t(message_len),
-                uint16_t(message_len)};
-    } else {
-      ++s.messages;
-      s.total_len += message_len;
-      s.stamps += stamps;
-      if (message_len < s.min_len)
-        s.min_len = message_len;
-      if (message_len > s.max_len)
-        s.max_len = message_len;
-    }
+    __m128i values = _mm_load_si128(reinterpret_cast<const __m128i *>(&s));
+    __m128i increment = _mm_set_epi32(0, 1, stamps, message_len);
+    _mm_store_si128(reinterpret_cast<__m128i *>(&s),
+                    _mm_add_epi32(values, increment));
+    if (message_len < s.min_len)
+      s.min_len = message_len;
+    if (message_len > s.max_len)
+      s.max_len = message_len;
   }
   void merge_from(const FlatMap &other) {
     for (const MapEntry &src : other.entries_) {
@@ -200,6 +206,8 @@ private:
     size_t mask = entries_.size() - 1, i = hash & mask;
     for (;;) {
       MapEntry &e = entries_[i];
+      // Rejected: outlining this rare insertion path shrank code but slowed
+      // 8-thread runs; keeping it here lets the compiler share live state.
       if (!e.len) {
         e = MapEntry{len <= 8 ? uintptr_t(short_key)
                               : reinterpret_cast<uintptr_t>(key),
@@ -208,6 +216,8 @@ private:
         ++size_;
         return &e;
       }
+      // Rejected: treating 32-bit hash+length as identity already collides in
+      // public-1M, so retain exact key verification on every matching hash.
       if (e.hash == hash && e.len == len &&
           (len <= 8 ? e.key == short_key
                     : key_equal(reinterpret_cast<const char *>(e.key), key,
@@ -259,6 +269,8 @@ static void init_months() {
   }
 }
 static inline uint32_t parse_timestamp8(const char *p) {
+  // Rejected: SSSE3 maddubs+maddwd used fewer instructions, but their serial
+  // multiply latency made the 8-thread hot loop slower than scalar SWAR.
   uint64_t x = load64(p) & 0x0f0f0f0f0f0f0f0fULL;
   x = (x & 0x000f000f000f000fULL) * 10 +
       ((x >> 8) & 0x000f000f000f000fULL);
@@ -269,6 +281,10 @@ static inline uint32_t parse_timestamp8(const char *p) {
 static inline uint32_t channel_length(const char *p, const char *end) {
   const __m128i comma = _mm_set1_epi8(',');
   uint32_t offset = 0;
+  // Rejected: carrying the first SIMD block into hashing saved one load but
+  // increased register pressure and slowed the complete worker loop.
+  // Rejected: an unconditional 16-byte overread loop removed bounds checks
+  // but regressed 8-thread runs and was unsafe at an exact page boundary.
   while (p + offset + 16 <= end) {
     uint32_t mask = uint32_t(_mm_movemask_epi8(_mm_cmpeq_epi8(
         _mm_loadu_si128(reinterpret_cast<const __m128i *>(p + offset)),
@@ -285,6 +301,8 @@ static FlatMap analyze_chunk(Chunk c) {
   FlatMap map;
   const char *p = c.begin;
   while (p < c.end) {
+    // Rejected: removing this predicted guard saved two branches but did not
+    // produce a repeatable total-runtime win and dropped blank-line handling.
     if (*p == '\n' || *p == '\r') {
       ++p;
       continue;
@@ -297,6 +315,8 @@ static FlatMap analyze_chunk(Chunk c) {
     p += len;
     uint64_t short_key = 0;
     uint32_t hash = hash_bytes(key, len, c.end, &short_key);
+    // Rejected: map-slot prefetch and a two-stage map/Stats prefetch schedule
+    // both increased pressure/spills in the complete worker loop.
     ++p;
     uint32_t message_len;
     if (__builtin_expect(p[3] == ',', 1)) {
@@ -304,6 +324,8 @@ static FlatMap analyze_chunk(Chunk c) {
                     uint8_t(p[1] - '0') * 10u + uint8_t(p[2] - '0');
       p += 4;
     } else {
+      // Rejected: a separate two-digit fast branch enlarged the hot loop and
+      // lost to this compact fallback despite avoiding two iterations.
       message_len = uint8_t(*p++ - '0');
       while (*p != ',')
         message_len = message_len * 10 + uint8_t(*p++ - '0');
@@ -403,6 +425,8 @@ static char *append_average(char *p, uint64_t total, uint32_t count) {
   return p;
 }
 static void write_result(std::ostream &out, const FlatMap &map) {
+  // Rejected: emitting hash-table order is valid but did not improve total
+  // runtime, so retain deterministic output at negligible 1B-scale cost.
   std::vector<const MapEntry *> entries;
   entries.reserve(map.size());
   for (const auto &e : map.entries())

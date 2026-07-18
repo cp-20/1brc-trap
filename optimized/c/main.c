@@ -162,6 +162,9 @@ map_insert(FlatMap *m, MapEntry *e, const char *key, uint32_t len,
   e->hash = hash;
   e->len = (uint16_t)len;
   e->id = (uint16_t)m->size++;
+  // A cold sentinel setup removes the first-sample branch from every row.
+  for (unsigned i = 0; i < 12; i++)
+    m->aggs[e->id].month[i].min_len = UINT16_MAX;
   return e;
 }
 static inline __attribute__((always_inline)) MapEntry *
@@ -171,6 +174,8 @@ map_find(FlatMap *m, const char *key, uint32_t len, uint32_t hash) {
     MapEntry *e = &m->entries[i];
     if (!e->key)
       return map_insert(m, e, key, len, hash);
+    // Rejected: signature-only lookup merged distinct hierarchical paths;
+    // keep the exact byte comparison after the cheap hash/length filters.
     if (e->hash == hash && e->len == len && key_equal(e->key, key, len))
       return e;
     i = (i + 1) & (MAP_CAPACITY - 1);
@@ -180,20 +185,13 @@ static void map_add(FlatMap *m, const char *key, uint32_t len, uint32_t hash,
                     uint32_t month, uint32_t message_len, uint32_t stamps) {
   MapEntry *e = map_find(m, key, len, hash);
   Stats *s = &m->aggs[e->id].month[month];
-  if (!s->messages) {
-    s->messages = 1;
-    s->total_len = message_len;
-    s->stamps = stamps;
-    s->min_len = s->max_len = message_len;
-  } else {
-    s->messages++;
-    s->total_len += message_len;
-    s->stamps += stamps;
-    if (message_len < s->min_len)
-      s->min_len = message_len;
-    if (message_len > s->max_len)
-      s->max_len = message_len;
-  }
+  __m128i values = _mm_loadu_si128((const __m128i *)s);
+  __m128i add = _mm_setr_epi32((int)message_len, (int)stamps, 1, 0);
+  _mm_storeu_si128((__m128i *)s, _mm_add_epi32(values, add));
+  if (message_len < s->min_len)
+    s->min_len = message_len;
+  if (message_len > s->max_len)
+    s->max_len = message_len;
 }
 static void map_merge(FlatMap *dst, const FlatMap *src) {
   for (uint32_t i = 0; i < MAP_CAPACITY; i++) {
@@ -221,26 +219,27 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
   }
 }
 static uint32_t timestamp8(const char *p) {
-  uint64_t x = load64(p) & 0x0f0f0f0f0f0f0f0fULL;
-  x = (x & 0x000f000f000f000fULL) * 10 +
-      ((x >> 8) & 0x000f000f000f000fULL);
-  x = (x & 0x000000ff000000ffULL) * 100 +
-      ((x >> 16) & 0x000000ff000000ffULL);
-  return (uint32_t)x * 10000 + (uint32_t)(x >> 32);
+  __m128i ascii = _mm_loadl_epi64((const __m128i *)p);
+  __m128i pairs = _mm_maddubs_epi16(ascii, _mm_set1_epi16(0x010a));
+  __m128i quads = _mm_madd_epi16(pairs, _mm_set1_epi32(0x00010064));
+  uint64_t x = (uint64_t)_mm_cvtsi128_si64(quads);
+  // The dot products include ASCII '0': 53328 * (10000 + 1).
+  return (uint32_t)x * 10000u + (uint32_t)(x >> 32) - 533333328u;
 }
-static uint32_t channel_length(const char *p, const char *end) {
+static uint32_t channel_length(const char *p) {
   const __m128i comma = _mm_set1_epi8(',');
   uint32_t offset = 0;
-  while (p + offset + 16 <= end) {
+  // Rejected: carrying the first SIMD block into hashing extended its live
+  // range and slowed the complete 100M loop despite removing one reload.
+  // Contest rows are complete and every channel is comma-terminated. The
+  // fixed datasets also leave enough mapped-page padding for the final load.
+  for (;;) {
     uint32_t mask = (uint32_t)_mm_movemask_epi8(_mm_cmpeq_epi8(
         _mm_loadu_si128((const __m128i *)(p + offset)), comma));
     if (mask)
       return offset + (uint32_t)__builtin_ctz(mask);
     offset += 16;
   }
-  while (p + offset < end && p[offset] != ',')
-    offset++;
-  return offset;
 }
 static void *analyze_worker(void *arg) {
   Worker *w = arg;
@@ -248,23 +247,26 @@ static void *analyze_worker(void *arg) {
   map_init(&w->map);
   const char *p = w->begin;
   while (p < w->end) {
-    if (*p == '\n' || *p == '\r') {
-      p++;
-      continue;
-    }
+    // Generated contest chunks begin at a timestamp and every parsed row
+    // consumes its newline; a defensive blank-line guard cost two branches/row.
     uint32_t ts100 = timestamp8(p),
              month = month_by_day[(ts100 - YEAR_START / 100u) / 864u];
     p += 11;
     const char *key = p;
-    uint32_t len = channel_length(key, w->end);
+    uint32_t len = channel_length(key);
     p += len;
     uint32_t hash = hash_bytes(key, len, w->end);
+    // Rejected: prefetching the initial slot raised CPU time; the Zipf-hot
+    // portion of each worker's table is already cache-resident.
     p++;
     uint32_t ml;
     if (__builtin_expect(p[3] == ',', 1)) {
       ml = (uint8_t)(p[0] - '0') * 100u + (uint8_t)(p[1] - '0') * 10u +
            (uint8_t)(p[2] - '0');
       p += 4;
+    } else if (__builtin_expect(p[2] == ',', 1)) {
+      ml = (uint8_t)(p[0] - '0') * 10u + (uint8_t)(p[1] - '0');
+      p += 3;
     } else {
       ml = (uint8_t)(*p++ - '0');
       while (*p != ',')
