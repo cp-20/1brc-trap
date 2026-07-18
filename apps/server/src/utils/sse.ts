@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { SSEStreamingApi } from "hono/streaming";
 import type { ResultAsync } from "neverthrow";
 
@@ -14,7 +16,7 @@ export async function streamJsonChanges<T>(
 ) {
   const intervalMs = options.intervalMs ?? 1_000;
   const heartbeatMs = options.heartbeatMs ?? 15_000;
-  let previous = "";
+  let previousDigest = "";
   let lastWriteAt = Date.now();
 
   while (!stream.closed && !stream.aborted) {
@@ -32,8 +34,9 @@ export async function streamJsonChanges<T>(
       return;
     }
     const data = JSON.stringify(loaded.value);
-    if (data !== previous) {
-      previous = data;
+    const digest = createHash("sha256").update(data).digest("base64");
+    if (digest !== previousDigest) {
+      previousDigest = digest;
       lastWriteAt = Date.now();
       await stream.writeSSE({
         event: options.event,
