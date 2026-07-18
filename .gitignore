@@ -20,6 +20,8 @@ baselines/go/traq_baseline_go
 # .NET build outputs
 baselines/csharp/bin/
 baselines/csharp/obj/
+optimized/csharp/bin/
+optimized/csharp/obj/
 
 # JavaScript / TypeScript dependencies and caches
 node_modules/

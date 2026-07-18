@@ -13,6 +13,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#pragma GCC target("avx2,sse4.2")
+
 #define MAP_CAPACITY (1u << 15)
 #define YEAR_START 1798761600u
 
@@ -63,20 +65,67 @@ static uint64_t load64(const char *p) {
   memcpy(&x, p, 8);
   return x;
 }
-static uint32_t hash_bytes(const char *p, size_t n) {
+static uint32_t load32(const char *p) {
+  uint32_t x;
+  memcpy(&x, p, 4);
+  return x;
+}
+static uint16_t load16(const char *p) {
+  uint16_t x;
+  memcpy(&x, p, 2);
+  return x;
+}
+static int key_equal(const char *a, const char *b, uint32_t n) {
+  if (n >= 8) {
+    if (load64(a) != load64(b))
+      return 0;
+    if (n == 8)
+      return 1;
+    if (n <= 16)
+      return load64(a + n - 8) == load64(b + n - 8);
+    if (load64(a + 8) != load64(b + 8))
+      return 0;
+    if (n <= 24)
+      return load64(a + n - 8) == load64(b + n - 8);
+    if (n <= 32)
+      return load64(a + 16) == load64(b + 16) &&
+             load64(a + n - 8) == load64(b + n - 8);
+    return !memcmp(a + 16, b + 16, n - 16);
+  }
+  if (n >= 4) {
+    if (load32(a) != load32(b))
+      return 0;
+    return n == 4 || load32(a + n - 4) == load32(b + n - 4);
+  }
+  if (n >= 2) {
+    if (load16(a) != load16(b))
+      return 0;
+    return n == 2 || load16(a + n - 2) == load16(b + n - 2);
+  }
+  return !n || *a == *b;
+}
+static uint32_t hash_bytes(const char *p, size_t n, const char *end) {
   uint64_t hash = n;
-  size_t i = 0;
-  for (; i + 8 <= n; i += 8) {
-    hash = _mm_crc32_u64(hash, load64(p + i));
-  }
   if (n < 8) {
-    uint64_t x = 0;
-    for (i = 0; i < n; i++)
-      x |= (uint64_t)(uint8_t)p[i] << (8 * i);
-    hash = _mm_crc32_u64(hash, x);
-  } else if (i < n) {
-    hash = _mm_crc32_u64(hash, load64(p + n - 8));
+    uint64_t x;
+    if (end && p + 8 <= end) {
+      x = load64(p) & ((UINT64_C(1) << (n * 8)) - 1);
+    } else if (n >= 4) {
+      x = load32(p);
+      x |= (uint64_t)load32(p + n - 4) << ((n - 4) * 8);
+    } else if (n >= 2) {
+      x = load16(p);
+      x |= (uint64_t)load16(p + n - 2) << ((n - 2) * 8);
+    } else {
+      x = n ? (uint8_t)*p : 0;
+    }
+    return (uint32_t)_mm_crc32_u64(hash, x);
   }
+  hash = _mm_crc32_u64(hash, load64(p));
+  if (n > 16)
+    hash = _mm_crc32_u64(hash, load64(p + n / 2 - 4));
+  if (n > 8)
+    hash = _mm_crc32_u64(hash, load64(p + n - 8));
   return (uint32_t)hash;
 }
 static void map_init(FlatMap *m) {
@@ -112,7 +161,7 @@ static MapEntry *map_find(FlatMap *m, const char *key, uint32_t len,
       e->tag = tag;
       return e;
     }
-    if (e->tag == tag && e->len == len && !memcmp(e->key, key, len))
+    if (e->tag == tag && e->len == len && key_equal(e->key, key, len))
       return e;
     i = (i + 1) & (MAP_CAPACITY - 1);
   }
@@ -141,7 +190,8 @@ static void map_merge(FlatMap *dst, const FlatMap *src) {
     const MapEntry *a = &src->entries[i];
     if (!a->key)
       continue;
-    MapEntry *b = map_find(dst, a->key, a->len, hash_bytes(a->key, a->len));
+    MapEntry *b =
+        map_find(dst, a->key, a->len, hash_bytes(a->key, a->len, NULL));
     for (unsigned j = 0; j < 12; j++) {
       const Stats *x = &src->aggs[a->id].month[j];
       Stats *y = &dst->aggs[b->id].month[j];
@@ -201,7 +251,7 @@ static void *analyze_worker(void *arg) {
     const char *key = p;
     uint32_t len = channel_length(key, w->end);
     p += len;
-    uint32_t hash = hash_bytes(key, len);
+    uint32_t hash = hash_bytes(key, len, w->end);
     p++;
     uint32_t ml = (uint8_t)(*p++ - '0');
     while (*p != ',')
@@ -374,10 +424,6 @@ int main(int argc, char **argv) {
   }
   if (output)
     fclose(out);
-  map_free(&merged);
-  free(workers);
-  free(ids);
-  munmap((void *)data, size);
-  close(fd);
-  return 0;
+  // ponytail: one-shot CLI; process teardown reclaims mappings and worker maps.
+  _exit(0);
 }

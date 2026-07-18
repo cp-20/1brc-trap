@@ -17,6 +17,8 @@
 #include <thread>
 #include <vector>
 
+#pragma GCC target("avx2,sse4.2")
+
 using Clock = std::chrono::steady_clock;
 static constexpr size_t MAP_CAPACITY = 1u << 15;
 static constexpr uint32_t YEAR_START = 1798761600u;
@@ -58,19 +60,68 @@ static inline uint64_t load64(const char *p) {
   std::memcpy(&x, p, sizeof(x));
   return x;
 }
-static inline uint32_t hash_bytes(const char *p, size_t n) {
-  uint64_t hash = n;
-  size_t i = 0;
-  for (; i + 8 <= n; i += 8)
-    hash = _mm_crc32_u64(hash, load64(p + i));
-  if (n < 8) {
-    uint64_t x = 0;
-    for (i = 0; i < n; ++i)
-      x |= uint64_t(uint8_t(p[i])) << (8 * i);
-    hash = _mm_crc32_u64(hash, x);
-  } else if (i < n) {
-    hash = _mm_crc32_u64(hash, load64(p + n - 8));
+static inline uint32_t load32(const char *p) {
+  uint32_t x;
+  std::memcpy(&x, p, sizeof(x));
+  return x;
+}
+static inline uint16_t load16(const char *p) {
+  uint16_t x;
+  std::memcpy(&x, p, sizeof(x));
+  return x;
+}
+static inline bool key_equal(const char *a, const char *b, uint32_t n) {
+  if (n >= 8) {
+    if (load64(a) != load64(b))
+      return false;
+    if (n == 8)
+      return true;
+    if (n <= 16)
+      return load64(a + n - 8) == load64(b + n - 8);
+    if (load64(a + 8) != load64(b + 8))
+      return false;
+    if (n <= 24)
+      return load64(a + n - 8) == load64(b + n - 8);
+    if (n <= 32)
+      return load64(a + 16) == load64(b + 16) &&
+             load64(a + n - 8) == load64(b + n - 8);
+    return std::memcmp(a + 16, b + 16, n - 16) == 0;
   }
+  if (n >= 4) {
+    if (load32(a) != load32(b))
+      return false;
+    return n == 4 || load32(a + n - 4) == load32(b + n - 4);
+  }
+  if (n >= 2) {
+    if (load16(a) != load16(b))
+      return false;
+    return n == 2 || load16(a + n - 2) == load16(b + n - 2);
+  }
+  return !n || *a == *b;
+}
+static inline uint32_t hash_bytes(const char *p, size_t n,
+                                  const char *end = nullptr) {
+  uint64_t hash = n;
+  if (n < 8) {
+    uint64_t x;
+    if (end && p + 8 <= end) {
+      x = load64(p) & ((UINT64_C(1) << (n * 8)) - 1);
+    } else if (n >= 4) {
+      x = load32(p);
+      x |= uint64_t(load32(p + n - 4)) << ((n - 4) * 8);
+    } else if (n >= 2) {
+      x = load16(p);
+      x |= uint64_t(load16(p + n - 2)) << ((n - 2) * 8);
+    } else {
+      x = n ? uint8_t(*p) : 0;
+    }
+    return uint32_t(_mm_crc32_u64(hash, x));
+  }
+  hash = _mm_crc32_u64(hash, load64(p));
+  if (n > 16)
+    hash = _mm_crc32_u64(hash, load64(p + n / 2 - 4));
+  if (n > 8)
+    hash = _mm_crc32_u64(hash, load64(p + n - 8));
   return uint32_t(hash);
 }
 
@@ -144,7 +195,7 @@ private:
         ++size_;
         return &e;
       }
-      if (e.tag == tag && e.len == len && std::memcmp(e.key, key, len) == 0)
+      if (e.tag == tag && e.len == len && key_equal(e.key, key, len))
         return &e;
       i = (i + 1) & mask;
     }
@@ -229,7 +280,7 @@ static FlatMap analyze_chunk(Chunk c) {
     const char *key = p;
     uint32_t len = channel_length(key, c.end);
     p += len;
-    uint32_t hash = hash_bytes(key, len);
+    uint32_t hash = hash_bytes(key, len, c.end);
     ++p;
     uint32_t message_len = uint8_t(*p++ - '0');
     while (*p != ',') {
@@ -393,6 +444,8 @@ int main(int argc, char **argv) {
                 << " output=" << p.output << " chunks=" << p.chunks
                 << " groups=" << p.groups << "\n";
     }
+    // ponytail: one-shot CLI; process teardown reclaims mappings and local maps.
+    _exit(0);
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
     return 1;

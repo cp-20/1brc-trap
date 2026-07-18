@@ -115,6 +115,7 @@ impl FlatMap {
             size: 0,
         }
     }
+    #[inline(always)]
     fn find(&mut self, data: &[u8], pos: usize, len: u32, hash: u32) -> usize {
         let mut i = hash as usize & (CAP - 1);
         let tag = (hash >> 16) as u16;
