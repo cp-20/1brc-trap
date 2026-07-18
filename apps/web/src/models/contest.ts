@@ -18,3 +18,7 @@ export function getContestPhase(
     return { label: "終了まで", target: endsAt, tone: "success" };
   return { label: "終了", target: endsAt, tone: "neutral" };
 }
+
+export function hasContestEnded(contest: ContestSchedule, now = new Date()) {
+  return now > new Date(contest.endAt);
+}

@@ -1,19 +1,22 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
 import type { HighlightLanguage } from "../utils/syntax-highlighter.js";
 
 import styles from "./code-block.module.css";
 
-export function CodeBlock({
+export const CodeBlock = memo(function CodeBlock({
   children,
   lang = "text",
   className = "",
+  diff = false,
 }: {
   children: string;
   lang?: HighlightLanguage | "text";
   className?: string;
+  diff?: boolean;
 }) {
   const [html, setHtml] = useState<string | null>(null);
+  const markup = useMemo(() => ({ __html: html ?? "" }), [html]);
 
   useEffect(() => {
     let active = true;
@@ -21,7 +24,9 @@ export function CodeBlock({
     if (lang === "text") return;
 
     void import("../utils/syntax-highlighter.js")
-      .then(({ highlightCode }) => highlightCode(children, lang))
+      .then(({ highlightCode, highlightDiff }) =>
+        diff ? highlightDiff(children, lang) : highlightCode(children, lang),
+      )
       .then((highlighted) => {
         if (active) setHtml(highlighted);
       })
@@ -29,7 +34,7 @@ export function CodeBlock({
     return () => {
       active = false;
     };
-  }, [children, lang]);
+  }, [children, diff, lang]);
 
   if (!html) {
     return (
@@ -41,7 +46,7 @@ export function CodeBlock({
   return (
     <div
       className={`${styles.block} ${styles.highlighted} code-block highlighted-code ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={markup}
     />
   );
-}
+});

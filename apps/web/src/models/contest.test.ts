@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { getContestPhase } from "./contest.js";
+import { getContestPhase, hasContestEnded } from "./contest.js";
 
 const contest = {
   startAt: "2026-07-20T00:00:00.000Z",
@@ -21,5 +21,14 @@ describe("contest phase presentation", () => {
     expect(
       getContestPhase(contest, new Date("2026-07-21T00:00:00.001Z")).label,
     ).toBe("終了");
+  });
+
+  it("終了時刻を過ぎたときだけ解説を公開する", () => {
+    expect(
+      hasContestEnded(contest, new Date("2026-07-21T00:00:00.000Z")),
+    ).toBeFalse();
+    expect(
+      hasContestEnded(contest, new Date("2026-07-21T00:00:00.001Z")),
+    ).toBeTrue();
   });
 });

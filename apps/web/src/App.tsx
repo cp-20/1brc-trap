@@ -5,21 +5,48 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/app-shell.js";
 import { accountGateway } from "./gateways/account-gateway.js";
+import {
+  contestGateway,
+  contestQueryKeys,
+} from "./gateways/contest-gateway.js";
+import { useClock } from "./gateways/use-clock.js";
+import { hasContestEnded } from "./models/contest.js";
 import { AccessKeyPage } from "./pages/access-key-page.js";
 import { AdminPage } from "./pages/admin-page.js";
 import { ContestPage } from "./pages/contest-page.js";
 import { DashboardPage } from "./pages/dashboard-page.js";
+import { GuidePage } from "./pages/guide-page.js";
 import { LeaderboardPage } from "./pages/leaderboard-page.js";
 import { SubmissionsPage } from "./pages/submissions-page.js";
 import { SubmitPage } from "./pages/submit-page.js";
 
 export function App() {
+  const now = useClock();
   const me = useQuery({ queryKey: ["me"], queryFn: accountGateway.me });
+  const contest = useQuery({
+    queryKey: contestQueryKeys.overview,
+    queryFn: contestGateway.contest,
+  });
+  const guideAvailable = contest.data
+    ? hasContestEnded(contest.data, now)
+    : false;
   return (
-    <AppShell user={me.data?.user}>
+    <AppShell user={me.data?.user} showGuide={guideAvailable}>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/contest" element={<ContestPage />} />
+        <Route
+          path="/guide"
+          element={
+            contest.isPending ? (
+              <div className="empty-state">解説を読み込み中...</div>
+            ) : guideAvailable ? (
+              <GuidePage />
+            ) : (
+              <Navigate to="/contest" replace />
+            )
+          }
+        />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route
           path="/submit"

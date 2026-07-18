@@ -1,13 +1,13 @@
 .block {
   overflow-x: auto;
   margin: 12px 0;
-  padding: 13px;
+  padding: 16px 17px;
   border: 1px solid #2e3945;
   border-radius: 5px;
   background: #10161e;
   color: #cce7f5;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 2;
   tab-size: 2;
 }
 
@@ -18,7 +18,7 @@
 .highlighted :global(.shiki) {
   min-width: max-content;
   margin: 0;
-  padding: 13px;
+  padding: 16px 17px;
   background: transparent !important;
   font: inherit;
 }

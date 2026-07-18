@@ -110,7 +110,7 @@
 
 .section > :global(.code-block) {
   margin: 13px 0;
-  padding: 11px 13px;
+  padding: 15px 17px;
   font-size: 13px;
 }
 
@@ -119,7 +119,7 @@
 }
 
 .section > :global(.highlighted-code) :global(.shiki) {
-  padding: 11px 13px;
+  padding: 15px 17px;
 }
 
 .taskFlow {
@@ -458,29 +458,32 @@
 }
 
 .optimizationCycle {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  margin: 22px 0;
-  padding: 0;
-  border: 1px solid #303b48;
-  background: #151c25;
-  list-style: none;
+  margin: 18px 0 22px;
+  padding-left: 28px;
+  list-style: decimal;
 }
 
 .optimizationCycle li {
-  padding: 16px;
+  padding-left: 5px;
+  color: #b8c5d1;
   font-size: 13px;
   line-height: 1.7;
 }
 
 .optimizationCycle li + li {
-  border-left: 1px solid #303b48;
+  margin-top: 8px;
 }
 
 .optimizationCycle strong {
-  display: block;
-  margin-bottom: 5px;
-  color: #8edfff;
+  margin-right: 0.5em;
+  color: #dce7ef;
+}
+
+.optimizationCycle li::marker {
+  color: #20beff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .benchmarkGrid {
@@ -513,53 +516,15 @@
   font-size: 14px;
 }
 
-.bottleneck {
-  margin-top: 16px;
-  padding: 13px 15px;
-  background: #111820;
-}
-
-.bottleneck h3 {
-  margin: 0 0 5px;
-  color: #dce7ef;
-  font-size: 14px;
-}
-
-.bottleneck p {
-  margin: 0;
-  color: #9faebb;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.bottleneck dl {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 10px;
-  margin: 12px 0 0;
-  padding-top: 11px;
-  border-top: 1px solid #293440;
-  font-size: 13px;
-}
-
-.bottleneck dt {
-  color: #8293a3;
-}
-
-.bottleneck dd {
-  margin: 0;
-  color: #8edfff;
-  font-weight: 650;
-}
-
-.stageLessons {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-  padding-left: 19px;
-  color: #becad5;
-  font-size: 13px;
-  line-height: 1.65;
+.section > p code,
+.diffSection > p code {
+  margin: 0 0.15em;
+  padding: 0.15em 0.25em;
+  border-radius: 3px;
+  background: #1d2934;
+  color: #9de4ff;
+  font-size: 0.8em;
+  white-space: nowrap;
 }
 
 .diffSection {
@@ -574,36 +539,158 @@
 }
 
 .diffBlock {
-  overflow-x: auto;
-  margin: 11px 0 0;
-  padding: 11px 0;
-  border: 1px solid #2e3945;
-  border-radius: 5px;
-  background: #10161e;
-  color: #c8d6e2;
-  font-size: 12px;
-  line-height: 1.6;
-  tab-size: 2;
+  margin: 11px 0 0 !important;
+  padding: 0 !important;
 }
 
-.diffBlock code,
-.diffBlock span {
+.diffBlock :global(.shiki) {
+  padding: 15px 0 !important;
+}
+
+.diffBlock :global(.shiki) code {
+  white-space: normal;
+}
+
+.diffBlock :global(.diff-line) {
   display: block;
   min-width: max-content;
+  padding-right: 17px;
+  white-space: pre;
 }
 
-.diffBlock span {
-  padding: 0 13px;
+.diffBlock :global(.diff-marker) {
+  display: inline-block;
+  width: 2ch;
+  margin-right: 2ch;
+  padding-left: 17px;
+  color: #8293a3;
+  user-select: none;
 }
 
-.diffAdded {
+.diffBlock :global(.diff-added) {
   background: rgb(46 160 67 / 17%);
-  color: #a7e8b2;
 }
 
-.diffRemoved {
+.diffBlock :global(.diff-removed) {
   background: rgb(248 81 73 / 15%);
-  color: #f0aaa6;
+}
+
+.diffBlock :global(.diff-added) :global(.diff-marker) {
+  color: #7ee787;
+}
+
+.diffBlock :global(.diff-removed) :global(.diff-marker) {
+  color: #ff7b72;
+}
+
+.flamegraph {
+  margin: 16px 0 24px;
+}
+
+.flamegraph button {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  padding: 0;
+  border: 1px solid #303b48;
+  border-radius: 5px;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.flamegraph img {
+  display: block;
+  width: 100%;
+  min-width: 900px;
+  height: auto;
+}
+
+.flamegraph figcaption {
+  margin-top: 6px;
+  color: #8293a3;
+  font-size: 11px;
+}
+
+.flamegraphDialog {
+  width: calc(100vw - 24px);
+  height: calc(100dvh - 24px);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #3a4857;
+  border-radius: 7px;
+  background: #10161e;
+  color: #dce7ef;
+  overflow: hidden;
+}
+
+.flamegraphDialog::backdrop {
+  background: rgb(0 0 0 / 78%);
+  backdrop-filter: blur(3px);
+}
+
+.flamegraphDialogContent {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.flamegraphDialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 2px 2px 13px;
+}
+
+.flamegraphDialogHeader h2,
+.flamegraphDialogHeader p {
+  margin: 0;
+}
+
+.flamegraphDialogHeader h2 {
+  font-size: 16px;
+}
+
+.flamegraphDialogHeader p {
+  margin-top: 5px;
+  color: #9eacba;
+  font-size: 12px;
+}
+
+.flamegraphDialogHeader p code {
+  margin: 0 0.12em;
+  padding: 0.18em 0.48em;
+  border-radius: 3px;
+  background: #1d2934;
+  color: #9de4ff;
+}
+
+.flamegraphDialogHeader > button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #3a4857;
+  border-radius: 4px;
+  background: #17212b;
+  color: #dce7ef;
+  cursor: pointer;
+}
+
+.flamegraphDialog object {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
 }
 
 .sourceDetails {
@@ -728,13 +815,8 @@
     grid-template-columns: 1fr;
   }
 
-  .optimizationCycle {
-    grid-template-columns: 1fr;
-  }
-
   .optimizationCycle li + li {
-    border-top: 1px solid #303b48;
-    border-left: 0;
+    margin-top: 8px;
   }
 
   .benchmarkGrid > div:not(:last-child) {

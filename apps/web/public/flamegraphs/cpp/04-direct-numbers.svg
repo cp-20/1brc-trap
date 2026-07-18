@@ -1,0 +1,1690 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="630" onload="init(evt)" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="630.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="613" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="613" > </text>
+<g id="frames">
+<g >
+<title>__handle_mm_fault (3,668,920 samples, 0.05%)</title><rect x="533.6" y="389" width="0.6" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="536.61" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (14,671,276 samples, 0.20%)</title><rect x="298.2" y="389" width="2.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="301.23" y="399.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::find (25,683,793 samples, 0.36%)</title><rect x="445.6" y="485" width="4.2" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="448.56" y="495.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (18,352,390 samples, 0.25%)</title><rect x="337.8" y="421" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="340.76" y="431.5" ></text>
+</g>
+<g >
+<title>mod_memcg_lruvec_state (3,670,862 samples, 0.05%)</title><rect x="1024.7" y="101" width="0.6" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="1027.66" y="111.5" ></text>
+</g>
+<g >
+<title>do_user_addr_fault (7,337,216 samples, 0.10%)</title><rect x="533.0" y="421" width="1.2" height="15.0" fill="rgb(228,108,25)" rx="2" ry="2" />
+<text  x="536.01" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (7,348,885 samples, 0.10%)</title><rect x="1103.1" y="469" width="1.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1106.09" y="479.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; std::__str_concat&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt; (385,330,460 samples, 5.33%)</title><rect x="242.5" y="469" width="62.9" height="15.0" fill="rgb(253,221,53)" rx="2" ry="2" />
+<text  x="245.50" y="479.5" >std::_..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_set_length (7,339,760 samples, 0.10%)</title><rect x="371.9" y="453" width="1.2" height="15.0" fill="rgb(249,204,48)" rx="2" ry="2" />
+<text  x="374.91" y="463.5" ></text>
+</g>
+<g >
+<title>filemap_add_folio (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="213" width="0.6" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1107.89" y="223.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="325" width="0.3" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1030.45" y="335.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (465,847,147 samples, 6.45%)</title><rect x="458.1" y="469" width="76.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="461.14" y="479.5" >[libc.so..</text>
+</g>
+<g >
+<title>[libc.so.6] (16,987,874 samples, 0.24%)</title><rect x="1022.9" y="293" width="2.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1025.88" y="303.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_set_length (3,669,418 samples, 0.05%)</title><rect x="304.8" y="437" width="0.6" height="15.0" fill="rgb(249,204,48)" rx="2" ry="2" />
+<text  x="307.82" y="447.5" ></text>
+</g>
+<g >
+<title>std::ostream::put (3,670,149 samples, 0.05%)</title><rect x="1111.5" y="469" width="0.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="1114.49" y="479.5" ></text>
+</g>
+<g >
+<title>std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;&gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="389" width="3.7" height="15.0" fill="rgb(249,204,48)" rx="2" ry="2" />
+<text  x="1024.98" y="399.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (47,740,107 samples, 0.66%)</title><rect x="1119.9" y="421" width="7.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1122.88" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (113,738,685 samples, 1.57%)</title><rect x="190.4" y="469" width="18.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="193.40" y="479.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Map_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt;, true&gt;::operator[] (7,340,954 samples, 0.10%)</title><rect x="1179.8" y="501" width="1.2" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1182.81" y="511.5" ></text>
+</g>
+<g >
+<title>update_process_times (3,675,181 samples, 0.05%)</title><rect x="854.2" y="325" width="0.6" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="857.19" y="335.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="293" width="0.3" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="1030.45" y="303.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::xsputn_2 (7,347,009 samples, 0.10%)</title><rect x="1104.3" y="453" width="1.2" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1107.29" y="463.5" ></text>
+</g>
+<g >
+<title>std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_int&lt;long long&gt; (7,350,787 samples, 0.10%)</title><rect x="1128.9" y="469" width="1.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="1131.88" y="479.5" ></text>
+</g>
+<g >
+<title>std::ostream&amp; std::ostream::_M_insert&lt;long long&gt; (14,698,219 samples, 0.20%)</title><rect x="1127.7" y="485" width="2.4" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="1130.68" y="495.5" ></text>
+</g>
+<g >
+<title>ext4_alloc_da_blocks (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="293" width="0.6" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="1105.49" y="303.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (3,667,534 samples, 0.05%)</title><rect x="1131.9" y="469" width="0.6" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1134.88" y="479.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (171,590,922 samples, 2.37%)</title><rect x="1067.9" y="405" width="28.0" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1070.88" y="415.5" >e..</text>
+</g>
+<g >
+<title>do_anonymous_page (10,898,197 samples, 0.15%)</title><rect x="1023.5" y="165" width="1.8" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="1026.48" y="175.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::operator&lt;&lt; &lt;std::char_traits&lt;char&gt; &gt; (3,675,150 samples, 0.05%)</title><rect x="1026.9" y="437" width="0.6" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1029.85" y="447.5" ></text>
+</g>
+<g >
+<title>malloc (3,671,020 samples, 0.05%)</title><rect x="230.5" y="437" width="0.6" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="233.54" y="447.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (178,932,594 samples, 2.48%)</title><rect x="1066.7" y="421" width="29.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1069.68" y="431.5" >[l..</text>
+</g>
+<g >
+<title>ext4_buffered_write_iter (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="277" width="0.6" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="1107.89" y="287.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_local_data (3,668,584 samples, 0.05%)</title><rect x="370.7" y="437" width="0.6" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="373.72" y="447.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (7,269,423 samples, 0.10%)</title><rect x="241.3" y="357" width="1.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="244.31" y="367.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_Alloc_hider::_Alloc_hider (245,730,938 samples, 3.40%)</title><rect x="321.0" y="453" width="40.1" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="324.00" y="463.5" >std..</text>
+</g>
+<g >
+<title>do_writev (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="341" width="0.6" height="15.0" fill="rgb(239,157,37)" rx="2" ry="2" />
+<text  x="1107.89" y="351.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Mod_range_hashing::operator (3,669,126 samples, 0.05%)</title><rect x="1021.4" y="405" width="0.6" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1024.38" y="415.5" ></text>
+</g>
+<g >
+<title>__hrtimer_run_queues (3,675,181 samples, 0.05%)</title><rect x="854.2" y="357" width="0.6" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="857.19" y="367.5" ></text>
+</g>
+<g >
+<title>mpage_submit_folio (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="165" width="0.6" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="1105.49" y="175.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (14,671,276 samples, 0.20%)</title><rect x="298.2" y="373" width="2.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="301.23" y="383.5" ></text>
+</g>
+<g >
+<title>ext4_release_file (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="309" width="0.6" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1105.49" y="319.5" ></text>
+</g>
+<g >
+<title>mas_walk (2,425,168 samples, 0.03%)</title><rect x="1025.3" y="197" width="0.4" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="1028.26" y="207.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::size (29,365,298 samples, 0.41%)</title><rect x="1000.4" y="357" width="4.8" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="1003.41" y="367.5" ></text>
+</g>
+<g >
+<title>sysvec_apic_timer_interrupt (3,675,181 samples, 0.05%)</title><rect x="854.2" y="405" width="0.6" height="15.0" fill="rgb(220,69,16)" rx="2" ry="2" />
+<text  x="857.19" y="415.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (51,381,670 samples, 0.71%)</title><rect x="322.8" y="437" width="8.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="325.77" y="447.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::close (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="469" width="0.6" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="1105.49" y="479.5" ></text>
+</g>
+<g >
+<title>fdget_pos (3,668,876 samples, 0.05%)</title><rect x="1069.1" y="325" width="0.6" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="1072.08" y="335.5" ></text>
+</g>
+<g >
+<title>xas_store (1,410,891 samples, 0.02%)</title><rect x="1027.6" y="85" width="0.2" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1030.59" y="95.5" ></text>
+</g>
+<g >
+<title>do_writepages (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="245" width="0.6" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="1105.49" y="255.5" ></text>
+</g>
+<g >
+<title>ext4_writepages (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="229" width="0.6" height="15.0" fill="rgb(240,165,39)" rx="2" ry="2" />
+<text  x="1105.49" y="239.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt;* std::__detail::_Hashtable_alloc&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::_M_allocate_node&lt;std::piecewise_construct_t const&amp;, std::tuple&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;&gt;, std::tuple&lt;&gt; &gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="437" width="3.7" height="15.0" fill="rgb(209,20,5)" rx="2" ry="2" />
+<text  x="1024.98" y="447.5" ></text>
+</g>
+<g >
+<title>xas_load (3,670,261 samples, 0.05%)</title><rect x="1095.3" y="229" width="0.6" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="1098.30" y="239.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_allocate_buckets (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="421" width="0.6" height="15.0" fill="rgb(250,210,50)" rx="2" ry="2" />
+<text  x="1023.78" y="431.5" ></text>
+</g>
+<g >
+<title>do_user_addr_fault (13,323,365 samples, 0.18%)</title><rect x="1023.5" y="229" width="2.2" height="15.0" fill="rgb(228,108,25)" rx="2" ry="2" />
+<text  x="1026.48" y="239.5" ></text>
+</g>
+<g >
+<title>bool std::operator==&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (132,116,768 samples, 1.83%)</title><rect x="996.8" y="373" width="21.6" height="15.0" fill="rgb(227,102,24)" rx="2" ry="2" />
+<text  x="999.81" y="383.5" >b..</text>
+</g>
+<g >
+<title>void std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt; (66,055,648 samples, 0.91%)</title><rect x="221.6" y="453" width="10.7" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="224.55" y="463.5" ></text>
+</g>
+<g >
+<title>__x64_sys_writev (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="357" width="0.6" height="15.0" fill="rgb(233,133,31)" rx="2" ry="2" />
+<text  x="1107.89" y="367.5" ></text>
+</g>
+<g >
+<title>std::ostream::sentry::sentry (3,670,686 samples, 0.05%)</title><rect x="1134.3" y="485" width="0.6" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="1137.28" y="495.5" ></text>
+</g>
+<g >
+<title>std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::do_put (7,349,473 samples, 0.10%)</title><rect x="1115.1" y="485" width="1.2" height="15.0" fill="rgb(243,175,41)" rx="2" ry="2" />
+<text  x="1118.08" y="495.5" ></text>
+</g>
+<g >
+<title>std::char_traits&lt;char&gt;::length (88,075,633 samples, 1.22%)</title><rect x="306.6" y="453" width="14.4" height="15.0" fill="rgb(245,188,44)" rx="2" ry="2" />
+<text  x="309.62" y="463.5" ></text>
+</g>
+<g >
+<title>std::locale::id::_M_id (3,674,857 samples, 0.05%)</title><rect x="1129.5" y="453" width="0.6" height="15.0" fill="rgb(222,82,19)" rx="2" ry="2" />
+<text  x="1132.48" y="463.5" ></text>
+</g>
+<g >
+<title>mpage_map_and_submit_buffers (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="181" width="0.6" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1105.49" y="191.5" ></text>
+</g>
+<g >
+<title>malloc@plt (3,670,427 samples, 0.05%)</title><rect x="359.3" y="405" width="0.6" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="362.33" y="415.5" ></text>
+</g>
+<g >
+<title>x64_sys_call (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="373" width="0.6" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1105.49" y="383.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_data (40,359,340 samples, 0.56%)</title><rect x="361.1" y="453" width="6.6" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="364.13" y="463.5" ></text>
+</g>
+<g >
+<title>operator new (18,341,961 samples, 0.25%)</title><rect x="297.6" y="405" width="3.0" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="300.63" y="415.5" ></text>
+</g>
+<g >
+<title>lruvec_stat_mod_folio (3,670,862 samples, 0.05%)</title><rect x="1024.7" y="117" width="0.6" height="15.0" fill="rgb(224,87,20)" rx="2" ry="2" />
+<text  x="1027.66" y="127.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_insert_unique_node (21,986,688 samples, 0.30%)</title><rect x="1018.4" y="453" width="3.6" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="1021.39" y="463.5" ></text>
+</g>
+<g >
+<title>copy_page_to_iter (142,233,114 samples, 1.97%)</title><rect x="1070.3" y="261" width="23.2" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="1073.28" y="271.5" >c..</text>
+</g>
+<g >
+<title>operator new (3,669,638 samples, 0.05%)</title><rect x="265.3" y="421" width="0.6" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="268.27" y="431.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (18,352,720 samples, 0.25%)</title><rect x="1060.7" y="469" width="3.0" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="1063.69" y="479.5" ></text>
+</g>
+<g >
+<title>__sysvec_apic_timer_interrupt (3,675,181 samples, 0.05%)</title><rect x="854.2" y="389" width="0.6" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="857.19" y="399.5" ></text>
+</g>
+<g >
+<title>asm_exc_page_fault (13,323,365 samples, 0.18%)</title><rect x="1023.5" y="261" width="2.2" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="1026.48" y="271.5" ></text>
+</g>
+<g >
+<title>irqentry_enter (3,670,260 samples, 0.05%)</title><rect x="300.0" y="325" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="303.03" y="335.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_Scoped_node::_Scoped_node&lt;std::piecewise_construct_t const&amp;, std::tuple&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;&gt;, std::tuple&lt;&gt; &gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="453" width="3.7" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="1024.98" y="463.5" ></text>
+</g>
+<g >
+<title>__folio_throttle_swaprate (7,227,335 samples, 0.10%)</title><rect x="1023.5" y="149" width="1.2" height="15.0" fill="rgb(239,160,38)" rx="2" ry="2" />
+<text  x="1026.48" y="159.5" ></text>
+</g>
+<g >
+<title>handle_pte_fault (3,668,920 samples, 0.05%)</title><rect x="533.6" y="373" width="0.6" height="15.0" fill="rgb(217,57,13)" rx="2" ry="2" />
+<text  x="536.61" y="383.5" ></text>
+</g>
+<g >
+<title>x64_sys_call (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="277" width="0.3" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1030.45" y="287.5" ></text>
+</g>
+<g >
+<title>x64_sys_call (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="373" width="0.6" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1107.89" y="383.5" ></text>
+</g>
+<g >
+<title>do_truncate (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="181" width="0.3" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="1030.45" y="191.5" ></text>
+</g>
+<g >
+<title>operator new (18,904,052 samples, 0.26%)</title><rect x="1022.6" y="309" width="3.1" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1025.57" y="319.5" ></text>
+</g>
+<g >
+<title>malloc@plt (7,342,170 samples, 0.10%)</title><rect x="231.1" y="437" width="1.2" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="234.14" y="447.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (171,590,922 samples, 2.37%)</title><rect x="1067.9" y="389" width="28.0" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="1070.88" y="399.5" >d..</text>
+</g>
+<g >
+<title>parse_number (563,745,551 samples, 7.80%)</title><rect x="145.7" y="485" width="92.0" height="15.0" fill="rgb(225,94,22)" rx="2" ry="2" />
+<text  x="148.68" y="495.5" >parse_number</text>
+</g>
+<g >
+<title>std::istream::sentry::sentry (18,351,026 samples, 0.25%)</title><rect x="1112.1" y="485" width="3.0" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1115.08" y="495.5" ></text>
+</g>
+<g >
+<title>rep_movs_alternative (138,562,939 samples, 1.92%)</title><rect x="1070.9" y="245" width="22.6" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="1073.88" y="255.5" >r..</text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::~_Hashtable (29,189,226 samples, 0.40%)</title><rect x="237.7" y="485" width="4.8" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="240.73" y="495.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_find_node (2,583,421,490 samples, 35.75%)</title><rect x="596.5" y="453" width="421.9" height="15.0" fill="rgb(252,217,51)" rx="2" ry="2" />
+<text  x="599.53" y="463.5" >std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::cha..</text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::open (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="405" width="0.3" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="1030.45" y="415.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_create (3,669,513 samples, 0.05%)</title><rect x="221.0" y="453" width="0.6" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="223.95" y="463.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::substr (128,429,705 samples, 1.78%)</title><rect x="211.4" y="469" width="20.9" height="15.0" fill="rgb(219,66,15)" rx="2" ry="2" />
+<text  x="214.37" y="479.5" ></text>
+</g>
+<g >
+<title>void std::__new_allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt;::construct&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::piecewise_construct_t const&amp;, std::tuple&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;&gt;, std::tuple&lt;&gt; &gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="405" width="3.7" height="15.0" fill="rgb(223,82,19)" rx="2" ry="2" />
+<text  x="1024.98" y="415.5" ></text>
+</g>
+<g >
+<title>asm_exc_page_fault (7,337,216 samples, 0.10%)</title><rect x="533.0" y="453" width="1.2" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="536.01" y="463.5" ></text>
+</g>
+<g >
+<title>ksys_read (164,250,236 samples, 2.27%)</title><rect x="1069.1" y="341" width="26.8" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1072.08" y="351.5" >k..</text>
+</g>
+<g >
+<title>sched_tick (3,675,181 samples, 0.05%)</title><rect x="854.2" y="309" width="0.6" height="15.0" fill="rgb(238,155,37)" rx="2" ry="2" />
+<text  x="857.19" y="319.5" ></text>
+</g>
+<g >
+<title>filemap_read (156,912,220 samples, 2.17%)</title><rect x="1070.3" y="277" width="25.6" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1073.28" y="287.5" >f..</text>
+</g>
+<g >
+<title>std::_Hash_impl::hash (7,340,005 samples, 0.10%)</title><rect x="1025.7" y="421" width="1.2" height="15.0" fill="rgb(226,96,23)" rx="2" ry="2" />
+<text  x="1028.66" y="431.5" ></text>
+</g>
+<g >
+<title>std::allocator_traits&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::deallocate (18,213,851 samples, 0.25%)</title><rect x="239.5" y="421" width="3.0" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="242.52" y="431.5" ></text>
+</g>
+<g >
+<title>lru_add_drain_cpu (855,362 samples, 0.01%)</title><rect x="1027.5" y="85" width="0.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1030.45" y="95.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (18,340,582 samples, 0.25%)</title><rect x="218.0" y="453" width="3.0" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="220.96" y="463.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (3,668,920 samples, 0.05%)</title><rect x="533.6" y="405" width="0.6" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="536.61" y="415.5" ></text>
+</g>
+<g >
+<title>void std::allocator_traits&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::construct&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::piecewise_construct_t const&amp;, std::tuple&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;&gt;, std::tuple&lt;&gt; &gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="421" width="3.7" height="15.0" fill="rgb(208,17,4)" rx="2" ry="2" />
+<text  x="1024.98" y="431.5" ></text>
+</g>
+<g >
+<title>xas_store (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="181" width="0.6" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1107.89" y="191.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_data (7,340,383 samples, 0.10%)</title><rect x="369.5" y="437" width="1.2" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="372.52" y="447.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="357" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1023.78" y="367.5" ></text>
+</g>
+<g >
+<title>std::basic_istream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::getline&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (457,274,958 samples, 6.33%)</title><rect x="1027.8" y="485" width="74.7" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="1030.82" y="495.5" >std::bas..</text>
+</g>
+<g >
+<title>__filemap_add_folio (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="197" width="0.6" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1107.89" y="207.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hash_code_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::__detail::_Select1st, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, true&gt;::_M_hash_code (7,340,005 samples, 0.10%)</title><rect x="1025.7" y="453" width="1.2" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="1028.66" y="463.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::find (3,671,361 samples, 0.05%)</title><rect x="210.8" y="469" width="0.6" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="213.77" y="479.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_string (29,362,805 samples, 0.41%)</title><rect x="300.6" y="453" width="4.8" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="303.63" y="463.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Mod_range_hashing::operator (216,480,248 samples, 3.00%)</title><rect x="856.0" y="389" width="35.3" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="858.99" y="399.5" >st..</text>
+</g>
+<g >
+<title>open64 (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="341" width="0.3" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1030.45" y="351.5" ></text>
+</g>
+<g >
+<title>__x64_sys_read (167,921,148 samples, 2.32%)</title><rect x="1068.5" y="357" width="27.4" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1071.48" y="367.5" >_..</text>
+</g>
+<g >
+<title>filemap_get_read_batch (11,010,157 samples, 0.15%)</title><rect x="1094.1" y="245" width="1.8" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="1097.10" y="255.5" ></text>
+</g>
+<g >
+<title>std::ostream&amp; std::ostream::_M_insert&lt;double&gt; (69,781,053 samples, 0.97%)</title><rect x="1116.3" y="485" width="11.4" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1119.28" y="495.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::reserve (18,351,776 samples, 0.25%)</title><rect x="1173.2" y="501" width="3.0" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="1176.23" y="511.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::substr (22,000,257 samples, 0.30%)</title><rect x="1176.2" y="501" width="3.6" height="15.0" fill="rgb(219,66,15)" rx="2" ry="2" />
+<text  x="1179.22" y="511.5" ></text>
+</g>
+<g >
+<title>folio_add_new_anon_rmap (3,670,862 samples, 0.05%)</title><rect x="1024.7" y="149" width="0.6" height="15.0" fill="rgb(233,133,31)" rx="2" ry="2" />
+<text  x="1027.66" y="159.5" ></text>
+</g>
+<g >
+<title>do_iter_readv_writev (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="309" width="0.6" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1107.89" y="319.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (22,017,853 samples, 0.30%)</title><rect x="442.0" y="485" width="3.6" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="444.96" y="495.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="405" width="0.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1105.49" y="415.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::reserve (113,750,891 samples, 1.57%)</title><rect x="282.1" y="421" width="18.5" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="285.05" y="431.5" ></text>
+</g>
+<g >
+<title>lru_gen_add_folio (855,362 samples, 0.01%)</title><rect x="1027.5" y="37" width="0.1" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="1030.45" y="47.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::append (348,624,777 samples, 4.82%)</title><rect x="243.7" y="453" width="56.9" height="15.0" fill="rgb(247,193,46)" rx="2" ry="2" />
+<text  x="246.70" y="463.5" >std::_..</text>
+</g>
+<g >
+<title>std::__detail::_Hash_code_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::__detail::_Select1st, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, true&gt;::_M_bucket_index (3,669,126 samples, 0.05%)</title><rect x="1021.4" y="421" width="0.6" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="1024.38" y="431.5" ></text>
+</g>
+<g >
+<title>std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;::operator (132,116,768 samples, 1.83%)</title><rect x="996.8" y="389" width="21.6" height="15.0" fill="rgb(245,188,45)" rx="2" ry="2" />
+<text  x="999.81" y="399.5" >s..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::size (33,023,531 samples, 0.46%)</title><rect x="449.8" y="485" width="5.3" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="452.75" y="495.5" ></text>
+</g>
+<g >
+<title>fdget_pos (3,670,912 samples, 0.05%)</title><rect x="1068.5" y="341" width="0.6" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="1071.48" y="351.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_rehash (18,316,562 samples, 0.25%)</title><rect x="1019.0" y="437" width="3.0" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="1021.99" y="447.5" ></text>
+</g>
+<g >
+<title>asm_sysvec_apic_timer_interrupt (3,675,181 samples, 0.05%)</title><rect x="854.2" y="421" width="0.6" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="857.19" y="431.5" ></text>
+</g>
+<g >
+<title>truncate_inode_pages_range (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="117" width="0.3" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="1030.45" y="127.5" ></text>
+</g>
+<g >
+<title>std::_Hash_bytes (341,278,135 samples, 4.72%)</title><rect x="535.4" y="469" width="55.7" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="538.41" y="479.5" >std::..</text>
+</g>
+<g >
+<title>[libc.so.6] (260,561,036 samples, 3.61%)</title><rect x="79.2" y="485" width="42.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="82.16" y="495.5" >[lib..</text>
+</g>
+<g >
+<title>memchr@plt (80,711,149 samples, 1.12%)</title><rect x="122.9" y="485" width="13.2" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="125.91" y="495.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="389" width="0.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="1105.49" y="399.5" ></text>
+</g>
+<g >
+<title>std::basic_ios&lt;char, std::char_traits&lt;char&gt; &gt;::rdstate (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="453" width="0.3" height="15.0" fill="rgb(220,69,16)" rx="2" ry="2" />
+<text  x="1030.45" y="463.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hash_code_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::__detail::_Select1st, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, true&gt;::_M_bucket_index (223,824,374 samples, 3.10%)</title><rect x="854.8" y="405" width="36.5" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="857.79" y="415.5" >std..</text>
+</g>
+<g >
+<title>[libc.so.6] (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="421" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1107.89" y="431.5" ></text>
+</g>
+<g >
+<title>std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;&amp;&amp;, 0ul&gt; (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="373" width="3.7" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="1024.98" y="383.5" ></text>
+</g>
+<g >
+<title>fclose (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="437" width="0.6" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="1105.49" y="447.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_length (3,669,418 samples, 0.05%)</title><rect x="304.8" y="421" width="0.6" height="15.0" fill="rgb(207,12,3)" rx="2" ry="2" />
+<text  x="307.82" y="431.5" ></text>
+</g>
+<g >
+<title>lock_vma_under_rcu (2,425,168 samples, 0.03%)</title><rect x="1025.3" y="213" width="0.4" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="1028.26" y="223.5" ></text>
+</g>
+<g >
+<title>main (6,754,994,791 samples, 93.48%)</title><rect x="34.8" y="501" width="1103.1" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="37.82" y="511.5" >main</text>
+</g>
+<g >
+<title>std::__new_allocator&lt;char&gt;::~__new_allocator (7,340,537 samples, 0.10%)</title><rect x="591.1" y="437" width="1.2" height="15.0" fill="rgb(238,154,36)" rx="2" ry="2" />
+<text  x="594.14" y="447.5" ></text>
+</g>
+<g >
+<title>ext4_do_writepages (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="213" width="0.6" height="15.0" fill="rgb(214,42,10)" rx="2" ry="2" />
+<text  x="1105.49" y="223.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (14,679,881 samples, 0.20%)</title><rect x="331.2" y="437" width="2.4" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="334.17" y="447.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (18,213,851 samples, 0.25%)</title><rect x="239.5" y="389" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="242.52" y="399.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Map_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt;, true&gt;::operator[] (2,660,961,091 samples, 36.82%)</title><rect x="592.3" y="469" width="434.6" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="595.34" y="479.5" >std::__detail::_Map_base&lt;std::__cxx11::basic_string&lt;char, s..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_is_local (22,022,477 samples, 0.30%)</title><rect x="367.7" y="453" width="3.6" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="370.72" y="463.5" ></text>
+</g>
+<g >
+<title>do_file_open (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="229" width="0.3" height="15.0" fill="rgb(232,125,29)" rx="2" ry="2" />
+<text  x="1030.45" y="239.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_is_local (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="341" width="3.7" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="1024.98" y="351.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (13,323,365 samples, 0.18%)</title><rect x="1023.5" y="245" width="2.2" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="1026.48" y="255.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (29,345,687 samples, 0.41%)</title><rect x="1055.9" y="469" width="4.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1058.90" y="479.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,542,478 samples, 0.02%)</title><rect x="10.0" y="485" width="0.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="495.5" ></text>
+</g>
+<g >
+<title>std::ostream::put (3,673,455 samples, 0.05%)</title><rect x="1133.1" y="453" width="0.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="1136.08" y="463.5" ></text>
+</g>
+<g >
+<title>writev (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="437" width="0.6" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="1107.89" y="447.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Node_iterator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, false, true&gt;::operator++ (3,675,150 samples, 0.05%)</title><rect x="1026.9" y="485" width="0.6" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="1029.85" y="495.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_length (3,670,586 samples, 0.05%)</title><rect x="371.3" y="453" width="0.6" height="15.0" fill="rgb(207,12,3)" rx="2" ry="2" />
+<text  x="374.31" y="463.5" ></text>
+</g>
+<g >
+<title>__raw_spin_lock_irqsave (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="101" width="0.6" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="1105.49" y="111.5" ></text>
+</g>
+<g >
+<title>arch_exit_to_user_mode_prepare.isra.0 (3,669,774 samples, 0.05%)</title><rect x="1067.9" y="373" width="0.6" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="1070.88" y="383.5" ></text>
+</g>
+<g >
+<title>std::basic_istream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::getline&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (33,007,500 samples, 0.46%)</title><rect x="1181.0" y="501" width="5.4" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="1184.01" y="511.5" ></text>
+</g>
+<g >
+<title>strlen@plt (18,353,110 samples, 0.25%)</title><rect x="1187.0" y="501" width="3.0" height="15.0" fill="rgb(240,162,38)" rx="2" ry="2" />
+<text  x="1190.00" y="511.5" ></text>
+</g>
+<g >
+<title>generic_file_read_iter (156,912,220 samples, 2.17%)</title><rect x="1070.3" y="293" width="25.6" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="1073.28" y="303.5" >g..</text>
+</g>
+<g >
+<title>xas_clear_mark (1,410,891 samples, 0.02%)</title><rect x="1027.6" y="69" width="0.2" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1030.59" y="79.5" ></text>
+</g>
+<g >
+<title>std::ostream::put (3,671,498 samples, 0.05%)</title><rect x="1133.7" y="469" width="0.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="1136.68" y="479.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_create (11,006,223 samples, 0.15%)</title><rect x="342.0" y="421" width="1.8" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="344.95" y="431.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (165,135,170 samples, 2.29%)</title><rect x="333.6" y="437" width="26.9" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="336.56" y="447.5" >s..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_check_length (333,946,655 samples, 4.62%)</title><rect x="246.1" y="437" width="54.5" height="15.0" fill="rgb(249,204,48)" rx="2" ry="2" />
+<text  x="249.09" y="447.5" >std::..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_create (3,668,688 samples, 0.05%)</title><rect x="281.5" y="421" width="0.6" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="284.45" y="431.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (10,898,197 samples, 0.15%)</title><rect x="1023.5" y="197" width="1.8" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1026.48" y="207.5" ></text>
+</g>
+<g >
+<title>pte_offset_map_lock (3,668,920 samples, 0.05%)</title><rect x="533.6" y="357" width="0.6" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="536.61" y="367.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (7,341,803 samples, 0.10%)</title><rect x="340.8" y="421" width="1.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="343.75" y="431.5" ></text>
+</g>
+<g >
+<title>notify_change (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="165" width="0.3" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="1030.45" y="175.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (69,732,884 samples, 0.96%)</title><rect x="309.6" y="437" width="11.4" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="312.61" y="447.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_find_before_node (2,568,743,460 samples, 35.55%)</title><rect x="598.9" y="437" width="419.5" height="15.0" fill="rgb(238,152,36)" rx="2" ry="2" />
+<text  x="601.93" y="447.5" >std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::cha..</text>
+</g>
+<g >
+<title>ext4_file_read_iter (156,912,220 samples, 2.17%)</title><rect x="1070.3" y="309" width="25.6" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="1073.28" y="319.5" >e..</text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_alloc&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::_M_allocate_buckets (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="405" width="0.6" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1023.78" y="415.5" ></text>
+</g>
+<g >
+<title>truncate_pagecache (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="133" width="0.3" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="1030.45" y="143.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_data (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="325" width="3.7" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="1024.98" y="335.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::underflow (182,601,930 samples, 2.53%)</title><rect x="1066.1" y="469" width="29.8" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="1069.08" y="479.5" >st..</text>
+</g>
+<g >
+<title>[libc.so.6] (44,075,218 samples, 0.61%)</title><rect x="1120.5" y="389" width="7.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1123.48" y="399.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_mutate (3,672,377 samples, 0.05%)</title><rect x="360.5" y="437" width="0.6" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="363.53" y="447.5" ></text>
+</g>
+<g >
+<title>path_openat (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="213" width="0.3" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="1030.45" y="223.5" ></text>
+</g>
+<g >
+<title>hrtimer_interrupt (3,675,181 samples, 0.05%)</title><rect x="854.2" y="373" width="0.6" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="857.19" y="383.5" ></text>
+</g>
+<g >
+<title>vfs_writev (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="325" width="0.6" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="1107.89" y="335.5" ></text>
+</g>
+<g >
+<title>ext4_setattr (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="149" width="0.3" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="1030.45" y="159.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (80,743,156 samples, 1.12%)</title><rect x="250.3" y="421" width="13.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="253.29" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (44,075,218 samples, 0.61%)</title><rect x="1120.5" y="405" width="7.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1123.48" y="415.5" ></text>
+</g>
+<g >
+<title>tick_nohz_handler (3,675,181 samples, 0.05%)</title><rect x="854.2" y="341" width="0.6" height="15.0" fill="rgb(248,200,48)" rx="2" ry="2" />
+<text  x="857.19" y="351.5" ></text>
+</g>
+<g >
+<title>std::allocator&lt;char&gt;::~allocator (7,340,537 samples, 0.10%)</title><rect x="591.1" y="453" width="1.2" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="594.14" y="463.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::operator&lt;&lt; &lt;std::char_traits&lt;char&gt; &gt; (3,673,455 samples, 0.05%)</title><rect x="1133.1" y="469" width="0.6" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1136.08" y="479.5" ></text>
+</g>
+<g >
+<title>std::ostream::put (3,675,150 samples, 0.05%)</title><rect x="1026.9" y="421" width="0.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="1029.85" y="431.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::operator&lt;&lt; &lt;std::char_traits&lt;char&gt; &gt; (3,673,522 samples, 0.05%)</title><rect x="1186.4" y="501" width="0.6" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1189.40" y="511.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_key_equals (132,116,768 samples, 1.83%)</title><rect x="996.8" y="405" width="21.6" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="999.81" y="415.5" >s..</text>
+</g>
+<g >
+<title>std::istream::sentry::sentry (40,381,152 samples, 0.56%)</title><rect x="1095.9" y="469" width="6.6" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="1098.90" y="479.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_string (22,528,163 samples, 0.31%)</title><rect x="1022.0" y="357" width="3.7" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="1024.98" y="367.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_string (740,756,543 samples, 10.25%)</title><rect x="321.0" y="469" width="121.0" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="324.00" y="479.5" >std::__cxx11::b..</text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (51,413,957 samples, 0.71%)</title><rect x="1119.3" y="453" width="8.4" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1122.28" y="463.5" ></text>
+</g>
+<g >
+<title>all (7,226,250,243 samples, 100%)</title><rect x="10.0" y="581" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="591.5" ></text>
+</g>
+<g >
+<title>vfs_read (160,581,360 samples, 2.22%)</title><rect x="1069.7" y="325" width="26.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="1072.68" y="335.5" >v..</text>
+</g>
+<g >
+<title>vsnprintf (47,740,107 samples, 0.66%)</title><rect x="1119.9" y="437" width="7.8" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="1122.88" y="447.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,542,478 samples, 0.02%)</title><rect x="10.0" y="549" width="0.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="559.5" ></text>
+</g>
+<g >
+<title>operator new (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="389" width="0.6" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="1023.78" y="399.5" ></text>
+</g>
+<g >
+<title>fput_close_sync (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="341" width="0.6" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="1105.49" y="351.5" ></text>
+</g>
+<g >
+<title>folio_batch_move_lru (855,362 samples, 0.01%)</title><rect x="1027.5" y="69" width="0.1" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="1030.45" y="79.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="389" width="0.6" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="1107.89" y="399.5" ></text>
+</g>
+<g >
+<title>handle_pte_fault (10,898,197 samples, 0.15%)</title><rect x="1023.5" y="181" width="1.8" height="15.0" fill="rgb(217,57,13)" rx="2" ry="2" />
+<text  x="1026.48" y="191.5" ></text>
+</g>
+<g >
+<title>read (182,601,930 samples, 2.53%)</title><rect x="1066.1" y="437" width="29.8" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="1069.08" y="447.5" >read</text>
+</g>
+<g >
+<title>std::basic_ofstream&lt;char, std::char_traits&lt;char&gt; &gt;::basic_ofstream (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="437" width="0.3" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="1030.45" y="447.5" ></text>
+</g>
+<g >
+<title>__libc_start_main (7,224,707,765 samples, 99.98%)</title><rect x="10.3" y="533" width="1179.7" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="13.25" y="543.5" >__libc_start_main</text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_bucket_index (223,824,374 samples, 3.10%)</title><rect x="854.8" y="421" width="36.5" height="15.0" fill="rgb(238,152,36)" rx="2" ry="2" />
+<text  x="857.79" y="431.5" >std..</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_dispose (55,024,319 samples, 0.76%)</title><rect x="1152.9" y="501" width="8.9" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="1155.85" y="511.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="309" width="0.3" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1030.45" y="319.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::operator&lt;&lt; &lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (36,735,685 samples, 0.51%)</title><rect x="1105.5" y="485" width="6.0" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="1108.49" y="495.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (91,755,337 samples, 1.27%)</title><rect x="1137.9" y="501" width="15.0" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="1140.87" y="511.5" ></text>
+</g>
+<g >
+<title>__folio_batch_release (855,362 samples, 0.01%)</title><rect x="1027.5" y="101" width="0.1" height="15.0" fill="rgb(208,16,3)" rx="2" ry="2" />
+<text  x="1030.45" y="111.5" ></text>
+</g>
+<g >
+<title>__x64_sys_openat (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="261" width="0.3" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="1030.45" y="271.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (7,224,707,765 samples, 99.98%)</title><rect x="10.3" y="517" width="1179.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.25" y="527.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,542,478 samples, 0.02%)</title><rect x="10.0" y="533" width="0.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="543.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (14,681,121 samples, 0.20%)</title><rect x="1063.7" y="469" width="2.4" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="1066.69" y="479.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="341" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1023.78" y="351.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (7,347,009 samples, 0.10%)</title><rect x="1104.3" y="469" width="1.2" height="15.0" fill="rgb(218,64,15)" rx="2" ry="2" />
+<text  x="1107.29" y="479.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::append (95,417,068 samples, 1.32%)</title><rect x="305.4" y="469" width="15.6" height="15.0" fill="rgb(247,193,46)" rx="2" ry="2" />
+<text  x="308.42" y="479.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,656,629 samples, 0.05%)</title><rect x="1020.8" y="373" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1023.78" y="383.5" ></text>
+</g>
+<g >
+<title>std::basic_ofstream&lt;char, std::char_traits&lt;char&gt; &gt;::~basic_ofstream (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="485" width="0.6" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="1105.49" y="495.5" ></text>
+</g>
+<g >
+<title>std::unordered_map&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, Stats, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt; &gt;::operator[] (18,349,135 samples, 0.25%)</title><rect x="1134.9" y="485" width="3.0" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="1137.87" y="495.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,542,478 samples, 0.02%)</title><rect x="10.0" y="501" width="0.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="511.5" ></text>
+</g>
+<g >
+<title>std::ostream::operator&lt;&lt; (7,344,953 samples, 0.10%)</title><rect x="1133.1" y="485" width="1.2" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="1136.08" y="495.5" ></text>
+</g>
+<g >
+<title>__fput (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="325" width="0.6" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="1105.49" y="335.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (7,337,216 samples, 0.10%)</title><rect x="533.0" y="437" width="1.2" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="536.01" y="447.5" ></text>
+</g>
+<g >
+<title>std::char_traits&lt;char&gt;::copy (421,633,442 samples, 5.83%)</title><rect x="373.1" y="453" width="68.9" height="15.0" fill="rgb(231,121,29)" rx="2" ry="2" />
+<text  x="376.11" y="463.5" >std::ch..</text>
+</g>
+<g >
+<title>std::ostream&amp; std::ostream::_M_insert&lt;long&gt; (18,367,078 samples, 0.25%)</title><rect x="1130.1" y="485" width="3.0" height="15.0" fill="rgb(205,2,0)" rx="2" ry="2" />
+<text  x="1133.08" y="495.5" ></text>
+</g>
+<g >
+<title>_raw_spin_lock_irqsave (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="117" width="0.6" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="1105.49" y="127.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_base&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_equals (777,999,781 samples, 10.77%)</title><rect x="891.3" y="421" width="127.1" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="894.34" y="431.5" >std::__detail::..</text>
+</g>
+<g >
+<title>memcmp@plt (7,342,903 samples, 0.10%)</title><rect x="534.2" y="469" width="1.2" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="537.21" y="479.5" ></text>
+</g>
+<g >
+<title>malloc (29,341,867 samples, 0.41%)</title><rect x="292.8" y="405" width="4.8" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="295.84" y="415.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt;::_M_next (3,675,150 samples, 0.05%)</title><rect x="1026.9" y="453" width="0.6" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="1029.85" y="463.5" ></text>
+</g>
+<g >
+<title>04-direct-numbe (7,226,250,243 samples, 100.00%)</title><rect x="10.0" y="565" width="1180.0" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="13.00" y="575.5" >04-direct-numbe</text>
+</g>
+<g >
+<title>[libc.so.6] (18,360,448 samples, 0.25%)</title><rect x="1124.7" y="373" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1127.68" y="383.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="405" width="0.6" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1107.89" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, std::allocator&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt; &gt;, std::__detail::_Select1st, std::equal_to&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::hash&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, false, true&gt; &gt;::_M_insert_bucket_begin (3,670,126 samples, 0.05%)</title><rect x="1018.4" y="437" width="0.6" height="15.0" fill="rgb(227,102,24)" rx="2" ry="2" />
+<text  x="1021.39" y="447.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_alloc&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::_M_deallocate_nodes (29,189,226 samples, 0.40%)</title><rect x="237.7" y="469" width="4.8" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="240.73" y="479.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,674,354 samples, 0.05%)</title><rect x="1132.5" y="453" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1135.48" y="463.5" ></text>
+</g>
+<g >
+<title>cfree (33,032,852 samples, 0.46%)</title><rect x="29.4" y="501" width="5.4" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="32.43" y="511.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (10,898,197 samples, 0.15%)</title><rect x="1023.5" y="213" width="1.8" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="1026.48" y="223.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_append (95,429,889 samples, 1.32%)</title><rect x="265.9" y="421" width="15.6" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="268.87" y="431.5" ></text>
+</g>
+<g >
+<title>std::basic_ios&lt;char, std::char_traits&lt;char&gt; &gt;::operator! (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="485" width="0.3" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="1030.45" y="495.5" ></text>
+</g>
+<g >
+<title>std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_float&lt;double&gt; (58,764,278 samples, 0.81%)</title><rect x="1118.1" y="469" width="9.6" height="15.0" fill="rgb(238,154,36)" rx="2" ry="2" />
+<text  x="1121.08" y="479.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Node_iterator_base&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt;::_M_incr (3,675,150 samples, 0.05%)</title><rect x="1026.9" y="469" width="0.6" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1029.85" y="479.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (10,975,375 samples, 0.15%)</title><rect x="237.7" y="437" width="1.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="240.73" y="447.5" ></text>
+</g>
+<g >
+<title>x64_sys_call (167,921,148 samples, 2.32%)</title><rect x="1068.5" y="373" width="27.4" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1071.48" y="383.5" >x..</text>
+</g>
+<g >
+<title>native_read_msr (3,675,181 samples, 0.05%)</title><rect x="854.2" y="293" width="0.6" height="15.0" fill="rgb(211,30,7)" rx="2" ry="2" />
+<text  x="857.19" y="303.5" ></text>
+</g>
+<g >
+<title>lru_add (855,362 samples, 0.01%)</title><rect x="1027.5" y="53" width="0.1" height="15.0" fill="rgb(241,167,40)" rx="2" ry="2" />
+<text  x="1030.45" y="63.5" ></text>
+</g>
+<g >
+<title>_IO_file_fopen (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="373" width="0.3" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="1030.45" y="383.5" ></text>
+</g>
+<g >
+<title>malloc (3,624,111 samples, 0.05%)</title><rect x="1022.0" y="309" width="0.6" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="1024.98" y="319.5" ></text>
+</g>
+<g >
+<title>std::char_traits&lt;char&gt;::assign (7,339,760 samples, 0.10%)</title><rect x="371.9" y="437" width="1.2" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="374.91" y="447.5" ></text>
+</g>
+<g >
+<title>std::basic_ios&lt;char, std::char_traits&lt;char&gt; &gt;::fail (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="469" width="0.3" height="15.0" fill="rgb(211,30,7)" rx="2" ry="2" />
+<text  x="1030.45" y="479.5" ></text>
+</g>
+<g >
+<title>_start (7,224,707,765 samples, 99.98%)</title><rect x="10.3" y="549" width="1179.7" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="13.25" y="559.5" >_start</text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; std::operator+&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (1,221,504,071 samples, 16.90%)</title><rect x="242.5" y="485" width="199.5" height="15.0" fill="rgb(218,59,14)" rx="2" ry="2" />
+<text  x="245.50" y="495.5" >std::__cxx11::basic_string..</text>
+</g>
+<g >
+<title>std::__str_hash_base&lt;char, std::allocator&lt;char&gt;, std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt;::operator (7,340,005 samples, 0.10%)</title><rect x="1025.7" y="437" width="1.2" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1028.66" y="447.5" ></text>
+</g>
+<g >
+<title>month_index (58,718,439 samples, 0.81%)</title><rect x="136.1" y="485" width="9.6" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="139.09" y="495.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (11,000,239 samples, 0.15%)</title><rect x="263.5" y="421" width="1.8" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="266.47" y="431.5" ></text>
+</g>
+<g >
+<title>filemap_writeback (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="261" width="0.6" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="1105.49" y="271.5" ></text>
+</g>
+<g >
+<title>filemap_flush (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="277" width="0.6" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1105.49" y="287.5" ></text>
+</g>
+<g >
+<title>fopen (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="389" width="0.3" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="1030.45" y="399.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_alloc&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::_M_deallocate_node (18,213,851 samples, 0.25%)</title><rect x="239.5" y="453" width="3.0" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="242.52" y="463.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::~basic_string (3,501,118,212 samples, 48.45%)</title><rect x="455.1" y="485" width="571.8" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="458.14" y="495.5" >std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; ..</text>
+</g>
+<g >
+<title>void std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt; (33,023,572 samples, 0.46%)</title><rect x="232.3" y="469" width="5.4" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="235.34" y="479.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,542,478 samples, 0.02%)</title><rect x="10.0" y="517" width="0.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="527.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (18,349,410 samples, 0.25%)</title><rect x="215.0" y="453" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="217.96" y="463.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_Alloc_hider::~_Alloc_hider (7,340,537 samples, 0.10%)</title><rect x="591.1" y="469" width="1.2" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="594.14" y="479.5" ></text>
+</g>
+<g >
+<title>_IO_file_open (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="357" width="0.3" height="15.0" fill="rgb(249,205,49)" rx="2" ry="2" />
+<text  x="1030.45" y="367.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_mutate (102,743,991 samples, 1.42%)</title><rect x="343.8" y="421" width="16.7" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="346.75" y="431.5" ></text>
+</g>
+<g >
+<title>__close_nocancel (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="421" width="0.6" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1105.49" y="431.5" ></text>
+</g>
+<g >
+<title>do_sys_openat2 (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="245" width="0.3" height="15.0" fill="rgb(253,221,52)" rx="2" ry="2" />
+<text  x="1030.45" y="255.5" ></text>
+</g>
+<g >
+<title>filemap_get_pages (14,679,106 samples, 0.20%)</title><rect x="1093.5" y="261" width="2.4" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="1096.50" y="271.5" ></text>
+</g>
+<g >
+<title>operator new (3,669,991 samples, 0.05%)</title><rect x="359.9" y="405" width="0.6" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="362.93" y="415.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_begin (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="245" width="0.6" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="1107.89" y="255.5" ></text>
+</g>
+<g >
+<title>__filemap_get_folio_mpol (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="229" width="0.6" height="15.0" fill="rgb(225,92,22)" rx="2" ry="2" />
+<text  x="1107.89" y="239.5" ></text>
+</g>
+<g >
+<title>std::char_traits&lt;char&gt;::compare (80,731,118 samples, 1.12%)</title><rect x="1005.2" y="357" width="13.2" height="15.0" fill="rgb(243,176,42)" rx="2" ry="2" />
+<text  x="1008.20" y="367.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::open (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="421" width="0.3" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1030.45" y="431.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (16,987,874 samples, 0.24%)</title><rect x="1022.9" y="277" width="2.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1025.88" y="287.5" ></text>
+</g>
+<g >
+<title>std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_int&lt;long&gt; (3,674,354 samples, 0.05%)</title><rect x="1132.5" y="469" width="0.6" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="1135.48" y="479.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::xsgetn (182,601,930 samples, 2.53%)</title><rect x="1066.1" y="453" width="29.8" height="15.0" fill="rgb(219,66,15)" rx="2" ry="2" />
+<text  x="1069.08" y="463.5" >st..</text>
+</g>
+<g >
+<title>memchr@plt (11,012,755 samples, 0.15%)</title><rect x="209.0" y="469" width="1.8" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="211.97" y="479.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::__ostream_insert&lt;char, std::char_traits&lt;char&gt; &gt; (14,695,894 samples, 0.20%)</title><rect x="1103.1" y="485" width="2.4" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="1106.09" y="495.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64 (3,670,857 samples, 0.05%)</title><rect x="1067.3" y="405" width="0.6" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1070.28" y="415.5" ></text>
+</g>
+<g >
+<title>__folio_start_writeback (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="133" width="0.6" height="15.0" fill="rgb(209,20,5)" rx="2" ry="2" />
+<text  x="1105.49" y="143.5" ></text>
+</g>
+<g >
+<title>delete_from_page_cache_batch (1,410,891 samples, 0.02%)</title><rect x="1027.6" y="101" width="0.2" height="15.0" fill="rgb(223,85,20)" rx="2" ry="2" />
+<text  x="1030.59" y="111.5" ></text>
+</g>
+<g >
+<title>std::__num_base::_S_format_float (3,673,534 samples, 0.05%)</title><rect x="1117.5" y="469" width="0.6" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="1120.48" y="479.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::close (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="453" width="0.6" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="1105.49" y="463.5" ></text>
+</g>
+<g >
+<title>std::basic_ostream&lt;char, std::char_traits&lt;char&gt; &gt;&amp; std::operator&lt;&lt; &lt;std::char_traits&lt;char&gt; &gt; (3,670,149 samples, 0.05%)</title><rect x="1111.5" y="485" width="0.6" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="1114.49" y="495.5" ></text>
+</g>
+<g >
+<title>asm_exc_page_fault (3,670,260 samples, 0.05%)</title><rect x="300.0" y="357" width="0.6" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="303.03" y="367.5" ></text>
+</g>
+<g >
+<title>__x64_sys_close (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="357" width="0.6" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="1105.49" y="367.5" ></text>
+</g>
+<g >
+<title>std::__new_allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt;::deallocate (18,213,851 samples, 0.25%)</title><rect x="239.5" y="405" width="3.0" height="15.0" fill="rgb(211,30,7)" rx="2" ry="2" />
+<text  x="242.52" y="415.5" ></text>
+</g>
+<g >
+<title>ext4_bio_write_folio (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="149" width="0.6" height="15.0" fill="rgb(226,101,24)" rx="2" ry="2" />
+<text  x="1105.49" y="159.5" ></text>
+</g>
+<g >
+<title>__folio_mod_stat (3,670,862 samples, 0.05%)</title><rect x="1024.7" y="133" width="0.6" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="1027.66" y="143.5" ></text>
+</g>
+<g >
+<title>std::__detail::_Hashtable_alloc&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const, Stats&gt;, true&gt; &gt; &gt;::_M_deallocate_node_ptr (18,213,851 samples, 0.25%)</title><rect x="239.5" y="437" width="3.0" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="242.52" y="447.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (7,351,247 samples, 0.10%)</title><rect x="1126.5" y="357" width="1.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1129.48" y="367.5" ></text>
+</g>
+<g >
+<title>exc_page_fault (3,670,260 samples, 0.05%)</title><rect x="300.0" y="341" width="0.6" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="303.03" y="351.5" ></text>
+</g>
+<g >
+<title>ext4_file_write_iter (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="293" width="0.6" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="1107.89" y="303.5" ></text>
+</g>
+<g >
+<title>malloc (51,370,739 samples, 0.71%)</title><rect x="350.9" y="405" width="8.4" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="353.94" y="415.5" ></text>
+</g>
+<g >
+<title>generic_perform_write (3,675,293 samples, 0.05%)</title><rect x="1104.9" y="261" width="0.6" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="1107.89" y="271.5" ></text>
+</g>
+<g >
+<title>int const&amp; std::min&lt;int&gt; (3,672,238 samples, 0.05%)</title><rect x="122.3" y="485" width="0.6" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="125.31" y="495.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (117,444,212 samples, 1.63%)</title><rect x="10.3" y="501" width="19.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.25" y="511.5" ></text>
+</g>
+<g >
+<title>cfree (3,674,626 samples, 0.05%)</title><rect x="121.7" y="485" width="0.6" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="124.71" y="495.5" ></text>
+</g>
+<g >
+<title>mpage_map_and_submit_extent (3,631,227 samples, 0.05%)</title><rect x="1102.5" y="197" width="0.6" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="1105.49" y="207.5" ></text>
+</g>
+<g >
+<title>do_open (2,266,253 samples, 0.03%)</title><rect x="1027.5" y="197" width="0.3" height="15.0" fill="rgb(233,129,31)" rx="2" ry="2" />
+<text  x="1030.45" y="207.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (10,975,375 samples, 0.15%)</title><rect x="237.7" y="453" width="1.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="240.73" y="463.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (18,213,851 samples, 0.25%)</title><rect x="239.5" y="373" width="3.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="242.52" y="383.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::find (69,729,135 samples, 0.96%)</title><rect x="1161.8" y="501" width="11.4" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="1164.84" y="511.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (7,298,443 samples, 0.10%)</title><rect x="238.3" y="421" width="1.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="241.33" y="431.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_Alloc_hider::_Alloc_hider (25,693,387 samples, 0.36%)</title><rect x="300.6" y="437" width="4.2" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="303.63" y="447.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,041,978 samples, 0.01%)</title><rect x="10.0" y="469" width="0.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="13.00" y="479.5" ></text>
+</g>
+</g>
+</svg>
