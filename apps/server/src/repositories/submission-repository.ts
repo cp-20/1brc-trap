@@ -172,6 +172,18 @@ export function createSubmissionRepository(database: Database) {
         )
         .map(() => undefined);
     },
+    discardInterruptedUploads() {
+      return database.transaction(async (transaction) => {
+        const rows = await transaction
+          .select({ id: submissions.id })
+          .from(submissions)
+          .where(eq(submissions.status, "uploading"));
+        await transaction
+          .delete(submissions)
+          .where(eq(submissions.status, "uploading"));
+        return ok(rows.map(({ id }) => id));
+      });
+    },
     byUser(username: string) {
       const prior = alias(submissions, "prior_submission");
       const queued = alias(submissions, "queued_submission");

@@ -109,6 +109,36 @@ describe("submission reservation", () => {
     expect(await database.orm.select().from(submissions)).toHaveLength(0);
     expect(await database.orm.select().from(users)).toHaveLength(0);
   });
+
+  it("再起動時に中断されたuploadingだけを即時回収する", async () => {
+    await database.orm.insert(users).values({ username: "user" });
+    await database.orm.insert(submissions).values([
+      {
+        id: "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "user",
+        status: "uploading",
+        upload_started_at: new Date(),
+      },
+      {
+        id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "user",
+        status: "queued",
+        upload_started_at: new Date(),
+      },
+    ]);
+
+    const result =
+      await createSubmissionRepository(database).discardInterruptedUploads();
+
+    expect(result._unsafeUnwrap()).toEqual([
+      "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
+    ]);
+    expect(
+      (await database.orm.select().from(submissions)).map(
+        ({ status }) => status,
+      ),
+    ).toEqual(["queued"]);
+  });
 });
 
 describe("submission history", () => {

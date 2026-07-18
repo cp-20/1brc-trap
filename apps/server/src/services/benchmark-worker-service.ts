@@ -1,5 +1,5 @@
 import type { BenchmarkResult } from "@1brc/domain";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { err, ok, type ResultAsync } from "neverthrow";
 
 import type { Config } from "../infrastructures/config.js";
@@ -117,7 +117,6 @@ export function createBenchmarkWorkerService(
         await delay(2_000);
         continue;
       }
-      await cleanupStaleUploads();
       const claimed = await claimNext();
       if (claimed.isErr()) {
         logger.error("failed to claim queue", {
@@ -217,42 +216,6 @@ export function createBenchmarkWorkerService(
         .where(eq(contestState.singleton_id, 1));
       return ok(undefined);
     });
-  }
-
-  async function cleanupStaleUploads() {
-    const rows = await database.result(
-      database.orm
-        .select({ id: submissions.id })
-        .from(submissions)
-        .where(
-          and(
-            eq(submissions.status, "uploading"),
-            lt(
-              submissions.upload_started_at,
-              sql`CURRENT_TIMESTAMP(6) - INTERVAL 15 MINUTE`,
-            ),
-          ),
-        ),
-    );
-    if (rows.isErr()) {
-      logger.error("failed to find stale uploads", {
-        error: rows.error.message,
-      });
-      return;
-    }
-    for (const row of rows.value) {
-      const deleted = await database.result(
-        database.orm
-          .delete(submissions)
-          .where(
-            and(
-              eq(submissions.id, row.id),
-              eq(submissions.status, "uploading"),
-            ),
-          ),
-      );
-      if (deleted.isOk()) await runner.cleanup(row.id);
-    }
   }
 
   function claimNext() {

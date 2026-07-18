@@ -27,6 +27,18 @@ const submissionRepository = createSubmissionRepository(database);
 const administrationRepository = createAdminRepository(database);
 const accountRepository = createAccountRepository(database);
 const datasets = createR2Signer(config);
+const interruptedUploads =
+  await submissionRepository.discardInterruptedUploads();
+if (interruptedUploads.isErr()) throw interruptedUploads.error;
+for (const id of interruptedUploads.value) {
+  const cleaned = await runner.cleanup(id);
+  if (cleaned.isErr()) {
+    logger.warn("failed to clean interrupted upload", {
+      submissionId: id,
+      error: cleaned.error.message,
+    });
+  }
+}
 const app = createApp({
   config,
   database,
