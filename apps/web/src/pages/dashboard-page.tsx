@@ -22,14 +22,15 @@ import styles from "./dashboard-page.module.css";
 
 export function DashboardPage() {
   const now = useClock();
-  useContestLive("public");
   const contest = useQuery({
     queryKey: contestQueryKeys.overview,
     queryFn: contestGateway.contest,
   });
+  const board = contest.data?.privatePublishedAt ? "private" : "public";
+  useContestLive(board);
   const leaderboard = useQuery({
-    queryKey: contestQueryKeys.leaderboard("public"),
-    queryFn: () => contestGateway.leaderboard("public"),
+    queryKey: contestQueryKeys.leaderboard(board),
+    queryFn: () => contestGateway.leaderboard(board),
   });
   if (contest.isError && !contest.data) {
     return <ErrorAlert message={contest.error.message} />;

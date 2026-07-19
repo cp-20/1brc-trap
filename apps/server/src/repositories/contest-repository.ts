@@ -105,7 +105,7 @@ export function createContestRepository(database: Database) {
             .from(submissions)
             .where(
               and(
-                ne(submissions.status, "rejected"),
+                eq(submissions.public_verdict, "accepted"),
                 lte(submissions.upload_started_at, contestEndAt),
               ),
             )

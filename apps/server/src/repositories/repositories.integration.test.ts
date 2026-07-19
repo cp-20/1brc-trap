@@ -190,11 +190,15 @@ describe("submission history", () => {
 });
 
 describe("leaderboard submissions", () => {
-  it("終了後の提出を順位表と順位推移から除外する", async () => {
+  it("終了後の提出を除外し、順位推移ではエラーを飛ばす", async () => {
     const contestEndAt = new Date("2026-07-17T00:00:00Z");
     await database.orm
       .insert(users)
-      .values([{ username: "before" }, { username: "after" }]);
+      .values([
+        { username: "before" },
+        { username: "error" },
+        { username: "after" },
+      ]);
     await database.orm.insert(submissions).values([
       {
         id: "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
@@ -205,6 +209,15 @@ describe("leaderboard submissions", () => {
         public_verdict: "accepted",
         public_score_ns: "2",
         upload_started_at: contestEndAt,
+      },
+      {
+        id: "2198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "error",
+        status: "completed",
+        execution_kind: "native",
+        language: "c",
+        public_verdict: "runtime_error",
+        upload_started_at: new Date(contestEndAt.getTime() - 1),
       },
       {
         id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
