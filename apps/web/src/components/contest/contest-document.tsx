@@ -158,6 +158,19 @@ function InputOutputSection({
           ["total_stamp_count", "スタンプ数の合計"],
         ]}
       />
+      <p>
+        <code>average_length</code>は、同じチャンネルと月に属する
+        <code>message_length</code>の合計を<code>message_count</code>
+        で割って求めます。合計と<code>message_count</code>をIEEE
+        754のbinary64に変換し、最近接偶数丸めで除算します。得られたbinary64値を最近接偶数丸めで小数第2位までの固定小数点表記にし、小数部を必ず2桁で出力してください。
+      </p>
+      <p>
+        この計算と出力は、CまたはC++で丸めモードを既定値から変えずに
+        <code>
+          printf(&quot;%.2f&quot;, (double)total_length / message_count)
+        </code>
+        とした場合と同じ動作です。
+      </p>
 
       <h3>出力例</h3>
       <p>上の入力例を集計すると、次の3行を出力します。</p>
