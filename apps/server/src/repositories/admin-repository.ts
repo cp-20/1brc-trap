@@ -1,4 +1,4 @@
-import type { DatasetManifest } from "@1brc/domain";
+import { activeSubmissionStatuses, type DatasetManifest } from "@1brc/domain";
 import { and, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { err, ok } from "neverthrow";
 
@@ -92,20 +92,13 @@ export function createAdminRepository(database: Database) {
         const [active] = await transaction
           .select({ active_count: count() })
           .from(submissions)
-          .where(
-            inArray(submissions.status, [
-              "uploading",
-              "queued",
-              "running",
-              "infrastructure_error",
-            ]),
-          );
+          .where(inArray(submissions.status, activeSubmissionStatuses));
         if ((active?.active_count ?? 0) > 0) {
           return err(
             new AppError(
               "conflict",
               "queue_not_drained",
-              "未完了または再試行が必要な提出があります",
+              "未完了の提出があります",
             ),
           );
         }

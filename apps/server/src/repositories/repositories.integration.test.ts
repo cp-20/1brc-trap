@@ -222,6 +222,25 @@ describe("private result publication", () => {
     const [state] = await database.orm.select().from(contestState);
     expect(state?.private_published_at).toBeNull();
   });
+
+  it("計測エラーで終了した提出があっても公開できる", async () => {
+    await database.orm.insert(users).values({ username: "user" });
+    await database.orm.insert(submissions).values({
+      id: "2198d9ec-9024-4d69-8bb8-9c13a73f6768",
+      username: "user",
+      status: "infrastructure_error",
+      infrastructure_error: "benchmark host unavailable",
+      upload_started_at: new Date(),
+    });
+
+    const result = await createAdminRepository(database).publishPrivateResults(
+      new Date(Date.now() - 1_000),
+    );
+
+    expect(result.isOk()).toBe(true);
+    const [state] = await database.orm.select().from(contestState);
+    expect(state?.private_published_at).not.toBeNull();
+  });
 });
 
 function openContest(): Config {
