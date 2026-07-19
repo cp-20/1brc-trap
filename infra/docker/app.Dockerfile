@@ -1,16 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
+FROM oven/bun@sha256:81901a85056114eab0c695db71703a73cae26284c8688d199cd39af452dd0f8b AS bun
+
 FROM ubuntu:26.04@sha256:c6c0067e0e45b7a826eaebb193cef957be28045380963a9b1eeb2a5d3c70a1b9 AS bun-base
-ARG BUN_RELEASE=canary
-ARG BUN_REVISION=1.4.0-canary.1+a227ad991
-ARG BUN_SHA256=02126d1b2d6b23030fab4ba31146d967cca7d5094e2c99aa9038c192b13bde1f
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl unzip libstdc++6 && rm -rf /var/lib/apt/lists/* && \
-    curl -fsSLo /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/${BUN_RELEASE}/bun-linux-x64.zip" && \
-    echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - && \
-    mkdir -p /opt/bun/bin && unzip -p /tmp/bun.zip bun-linux-x64/bun > /opt/bun/bin/bun && \
-    chmod 0755 /opt/bun/bin/bun && rm /tmp/bun.zip && \
-    test "$(/opt/bun/bin/bun --revision)" = "${BUN_REVISION}"
+    ca-certificates libstdc++6 && rm -rf /var/lib/apt/lists/*
+COPY --from=bun /usr/local/bin/bun /opt/bun/bin/bun
 ENV PATH="/opt/bun/bin:${PATH}"
 
 FROM bun-base AS manifests
