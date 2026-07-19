@@ -35,6 +35,8 @@ export function createContestService(
   config: Config,
 ) {
   const liveSnapshotCache = createResultCache<LiveSnapshot, AppError>(1_000);
+  const withoutAdmins = <T extends { username: string }>(rows: T[]) =>
+    rows.filter(({ username }) => !config.admins.has(username));
 
   return {
     overview() {
@@ -79,7 +81,7 @@ export function createContestService(
           requestedBoard === "private" && privatePublished
             ? "private"
             : "public";
-        return buildLeaderboard(rows, board, privatePublished);
+        return buildLeaderboard(withoutAdmins(rows), board, privatePublished);
       });
     },
     leaderboardReplay() {
@@ -96,7 +98,7 @@ export function createContestService(
         .privatePublished()
         .andThen((privatePublished) =>
           privatePublished
-            ? repository.leaderboardReplay()
+            ? repository.leaderboardReplay().map((rows) => withoutAdmins(rows))
             : errAsync(
                 new AppError(
                   "conflict",
@@ -128,7 +130,11 @@ export function createContestService(
                 state?.private_published_at?.toISOString() ?? null,
               ...participation,
             },
-            leaderboard: buildLeaderboard(rows, board, privatePublished),
+            leaderboard: buildLeaderboard(
+              withoutAdmins(rows),
+              board,
+              privatePublished,
+            ),
           };
         }),
       );

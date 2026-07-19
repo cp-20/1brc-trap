@@ -45,6 +45,42 @@ describe("contest policy", () => {
     expect(result.isOk() && result.value.board).toBe("public");
   });
 
+  it("管理者の参考提出をリーダーボードと順位推移から除外する", async () => {
+    const adminRow = {
+      username: "admin",
+      submission_id: "admin-submission",
+      language: "c" as const,
+      public_verdict: "accepted" as const,
+      public_score_ns: "1",
+      private_verdict: "accepted" as const,
+      private_score_ns: "1",
+      disqualified_reason: null,
+      submitted_at: new Date("2026-01-01T00:00:00Z"),
+    };
+    const repository = {
+      privatePublished: vi.fn(() => okAsync(true)),
+      leaderboard: vi.fn(() => okAsync([adminRow])),
+      leaderboardReplay: vi.fn(() =>
+        okAsync([{ username: "admin", submissionId: "admin-submission" }]),
+      ),
+    };
+    const service = createContestService(
+      repository as unknown as ContestRepository,
+      {} as R2Signer,
+      {
+        ...contestConfig,
+        CONTEST_END_AT: new Date(Date.now() - 1_000),
+        admins: new Set(["admin"]),
+      },
+    );
+
+    const leaderboard = await service.leaderboard("public", undefined);
+    const replay = await service.leaderboardReplay();
+
+    expect(leaderboard.isOk() && leaderboard.value.ranked).toEqual([]);
+    expect(replay.isOk() && replay.value).toEqual([]);
+  });
+
   it("順位推移はコンテスト終了後かつPrivate公開後だけ返す", async () => {
     const beforeEndRepository = {
       privatePublished: vi.fn(() => okAsync(true)),
@@ -103,4 +139,5 @@ const contestConfig = {
   BENCHMARK_BUN_VERSION: "bun",
   BENCHMARK_RUBY_VERSION: "ruby",
   BENCHMARK_SHARED_LIBRARIES: "libc",
+  admins: new Set<string>(),
 } as Config;
