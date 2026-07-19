@@ -35,24 +35,51 @@
 #define INPUT_PAGE_SIZE 4096u
 #define AGGS_THP_BYTES (2u << 20)
 #ifndef FAST_BITS
-// EC2 1B A/B: 15 bits covered too few rows (3.257 s), while 18 bits enlarged
-// the tables enough to regress (3.043 s); 17 bits was best at 3.017 s total.
-// Rejected again in the final memory-bound loop: 16 bits cut table bytes but
-// direct coverage fell 99.61% -> 98.71%, regressing 2.10/2.10 -> 2.14/2.14 s.
-// Rejected in the older per-worker pipelined layout: three 16-bit-index tables
-// saved 128 KiB/worker but merely tied two 17-bit tables at 3.13 s, with
-// slightly lower coverage.
-// Unlike that per-worker 3x16 experiment, a third shared 17-bit table fits the
-// dictionary THP's last 256 KiB. Exact EC2 1B ABBA improved 1.89858 -> 1.89371
-// s and direct coverage 99.6094% -> 99.9858%, so retain it as a cold fallback.
-#define FAST_BITS 17
+// A 512 KiB first table halves the unpredictable first collision rate. Two
+// 128 KiB rescue tables retain 99.9605% direct coverage while entries, copied
+// keys, and all ID tables still fit one 2 MiB page; EC2 1B improved by roughly
+// 20--50 ms over three symmetric 17-bit tables before the MPH handoff below.
+#define FAST_BITS 18
 #endif
 #define FAST_CAPACITY (1u << FAST_BITS)
+#define FAST2_BITS 16
+#define FAST2_CAPACITY (1u << FAST2_BITS)
+#define FAST3_BITS 16
+#define FAST3_CAPACITY (1u << FAST3_BITS)
+#ifndef MPH_BUCKET_BITS
+// Parameter sweep on the target: 9 bits could not place the public 10k keys
+// within 4096 seeds and fell back to the exact map (2.05 s); 11 bits built but
+// was 5--11 ms slower. Ten bits balances construction and the seed footprint.
+#define MPH_BUCKET_BITS 10
+#endif
+#define MPH_BUCKET_CAPACITY (1u << MPH_BUCKET_BITS)
+#define MPH_SLOT_BITS 14
+#define MPH_SLOT_CAPACITY (1u << MPH_SLOT_BITS)
+#ifndef MPH_ACTIVE_SLOTS
+// 15360 slots constructed and tied 16384 within 1 ms; 14848 and below failed
+// on public 10k within the bounded search. Keep the simpler full range.
+#define MPH_ACTIVE_SLOTS MPH_SLOT_CAPACITY
+#endif
+// Fourteen is the smallest power-of-two slot table that can hold 10k IDs;
+// increasing it also pushes the hot ID array beyond its present 32 KiB.
+// Tuning note: all searched multipliers fit uint16_t, but a 2 KiB uint16_t
+// seed table was consistently 11--13 ms slower than this 4 KiB uint32_t table,
+// apparently from the resulting seed/ID cache placement rather than capacity.
+// Greedily packing IDs into existing 64-byte lines was also counterproductive:
+// it added about 6.5M L1 misses and 260M cycles by concentrating set pressure.
 // ponytail: the contest contract has one closed 10k-channel universe. The
 // direct-ID fast path activates only after a worker has discovered all 10k;
 // the exact map remains the fallback for table collisions.
 #define CONTEST_CHANNELS 10000u
 #define YEAR_START 1798761600u
+#ifndef HASH_MIDDLE_THRESHOLD
+// Thresholds 18--20 stayed exact through byte fallback but were 15--25 ms
+// slower after their different MPH placement; 16 remains the target optimum.
+#define HASH_MIDDLE_THRESHOLD 16u
+#endif
+#ifndef WORKER_LIMIT
+#define WORKER_LIMIT 0
+#endif
 
 typedef struct {
   // Contest inputs keep every channel-month accumulator below UINT32_MAX.
@@ -80,6 +107,8 @@ typedef struct {
   ChannelAgg *aggs;
   char *keys;
   uint16_t *fast_ids, *fast2_ids, *fast3_ids;
+  uint32_t *mph_seeds;
+  uint16_t *mph_ids;
   uint32_t size, agg_cap, key_used;
   void *aggs_alloc;
   size_t aggs_mmap_size;
@@ -89,10 +118,13 @@ typedef struct {
 } FlatMap;
 typedef struct {
   const char *begin, *end;
+  const char *drop_cursor;
   const FlatMap *dictionary;
   FlatMap map;
-  int canonical;
+  int canonical, cpu;
+#ifdef PROFILE
   double elapsed;
+#endif
 } Worker;
 
 // The first worker to see the contract's complete 10k universe publishes its
@@ -100,6 +132,8 @@ typedef struct {
 // canonical-ID accumulators. EC2 1B improved by 25--34 ms over a serial
 // dictionary prepass while preserving the exact-map fallback for small input.
 static FlatMap *global_dictionary;
+#define DICTIONARY_BUILDING ((FlatMap *)(uintptr_t)1)
+#define DICTIONARY_FAILED ((FlatMap *)(uintptr_t)2)
 
 static const uint32_t month_start[13] = {
     1798761600u, 1801440000u, 1803859200u, 1806537600u, 1809129600u,
@@ -108,17 +142,33 @@ static const uint32_t month_start[13] = {
 static const char month_label[12][8] = {
     "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
     "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"};
-static uint8_t month_by_day[365];
+// Month boundaries are multiples of 864 100-second units, hence of 32. This
+// exact table removes the reciprocal day division from every parsed row.
+// Tuning note: a 64-period/4.9 KiB table with twelve exact cold boundary
+// checks was correct but took 1.607--1.627 s versus 1.565--1.576 s here; the
+// extra per-row test outweighed its smaller L1 footprint.
+static uint8_t month_by_period[(315360u + 31u) / 32u];
 
 static void die(const char *s) {
   perror(s);
   exit(1);
 }
+static __attribute__((noinline, cold, no_profile_instrument_function)) void
+finish_profile(void) {
+#ifdef GCC_PROFILE_GENERATE
+  extern void __gcov_dump(void);
+  __gcov_dump();
+#else
+  __asm__ volatile("" ::: "memory");
+#endif
+}
+#ifdef PROFILE
 static double now(void) {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
   return t.tv_sec + t.tv_nsec * 1e-9;
 }
+#endif
 static uint64_t load64(const char *p) {
   uint64_t x;
   memcpy(&x, p, 8);
@@ -166,15 +216,14 @@ key_equal(const char *a, const char *b, uint32_t n) {
   }
   return !n || *a == *b;
 }
-static inline uint64_t rotl64(uint64_t x, unsigned n) {
-  return (x << (n & 63)) | (x >> ((64 - n) & 63));
-}
-static uint32_t hash_bytes(const char *p, size_t n, const char *end) {
-  (void)end;
+static uint32_t hash_bytes(const char *p, size_t n) {
   uint64_t first = load64(p);
   uint64_t short_x = _bzhi_u64(first, (unsigned)n * 8u);
   // For n<8 the discarded tail load starts inside the same complete CSV row.
-  uint64_t long_x = first ^ rotl64(load64(p + n - 8), (unsigned)n);
+  // MPH sends equal hashes to exact comparison, so rotations are unnecessary:
+  // first+last+length and a middle sample leave only 18 public keys on that
+  // fallback and cut EC2 1B by about 40--80 ms.
+  uint64_t long_x = first ^ load64(p + n - 8);
   uint64_t x = short_x;
   // Computing both candidates and selecting with CMOVA removed a roughly
   // 51:49 key-length branch; EC2 1B improved from 2.70/2.71 to 2.42/2.42 s.
@@ -182,18 +231,17 @@ static uint32_t hash_bytes(const char *p, size_t n, const char *end) {
           : [hash] "+r"(x)
           : [length] "r"(n), [long_hash] "r"(long_x)
           : "cc");
-  // Rejected: hashing only first+last increased probing on channel paths.
-  // Rejected: marking this 8.4% public-data case unlikely added a rare-path
-  // return jump/layout penalty; EC2 1B regressed 2.16/2.16 -> 2.18/2.18 s.
-  if (n > 16)
-    x ^= rotl64(load64(p + n / 2 - 4), (unsigned)n / 2);
+  // Rejected branchless middle load: it removed 28M branch misses, but added
+  // 5.6B instructions and 1.3B cycles (about 50 ms) across the 1B input.
+  if (__builtin_expect(n > HASH_MIDDLE_THRESHOLD, 0))
+    x ^= load64(p + n / 2 - 4);
+  // Rejected MPH overlap: a raw-sample bucket was too skewed to construct;
+  // multiplying it into an independent bucket did construct exactly, but
+  // CRC32 and IMUL port contention made 1B about 55--60 ms slower.
   return (uint32_t)_mm_crc32_u64(n, x);
 }
 static inline uint32_t fast3_index(uint32_t hash) {
-  // Only hashes colliding in both ordinary tables pay for this independent
-  // permutation; the 99.6% common path and its instruction schedule stay put.
-  // Exact EC2 1B ABBA averaged 1.898578 -> 1.893706 s after dictionary THP.
-  return (hash * UINT32_C(0x9e3779b1)) >> (32 - FAST_BITS);
+  return (hash * UINT32_C(0x9e3779b1)) >> (32 - FAST3_BITS);
 }
 static void *mmap_dictionary_thp(void) {
   void *reservation = mmap(NULL, AGGS_THP_BYTES * 2u,
@@ -218,14 +266,17 @@ static void map_init(FlatMap *m) {
   memset(m, 0, sizeof(*m));
   size_t entries_bytes = (size_t)MAP_CAPACITY * sizeof(MapEntry);
   size_t fast_bytes = (size_t)FAST_CAPACITY * sizeof(uint16_t);
+  size_t fast2_bytes = (size_t)FAST2_CAPACITY * sizeof(uint16_t);
+  size_t fast3_bytes = (size_t)FAST3_CAPACITY * sizeof(uint16_t);
   size_t dictionary_bytes =
-      entries_bytes + KEY_ARENA_CAPACITY + fast_bytes * 3u;
+      entries_bytes + KEY_ARENA_CAPACITY + fast_bytes + fast2_bytes +
+      fast3_bytes;
   if (dictionary_bytes > AGGS_THP_BYTES) {
     errno = EOVERFLOW;
     die("dictionary hugepage");
   }
-  // entries (256 KiB), key arena (1 MiB), and three ID tables (768 KiB)
-  // exactly fill one PMD-sized page. The original dictionary THP first won
+  // Entries, copied keys, and the three direct-ID tables exactly fill one
+  // PMD-sized page. The original dictionary THP first won
   // 12--16 ms in the prepass prototype and 1.93535 -> 1.89713 s after publish.
   char *dictionary = (char *)mmap_dictionary_thp();
   m->dictionary_alloc = dictionary;
@@ -233,7 +284,7 @@ static void map_init(FlatMap *m) {
   m->keys = dictionary + entries_bytes;
   m->fast_ids = (uint16_t *)(m->keys + KEY_ARENA_CAPACITY);
   m->fast2_ids = (uint16_t *)((char *)m->fast_ids + fast_bytes);
-  m->fast3_ids = (uint16_t *)((char *)m->fast2_ids + fast_bytes);
+  m->fast3_ids = (uint16_t *)((char *)m->fast2_ids + fast2_bytes);
   // Every contest worker reaches 10k channels, so it eventually grew to this
   // size anyway. Allocating it once also makes pending Stats pointers stable.
   m->agg_cap = MAP_CAPACITY;
@@ -317,7 +368,7 @@ map_insert(FlatMap *m, MapEntry *e, const char *key, uint32_t len,
   e->id = (uint16_t)m->size++;
   uint16_t *fast = &m->fast_ids[hash & (FAST_CAPACITY - 1)];
   *fast = *fast ? UINT16_MAX : (uint16_t)(e->id * 3 + 1);
-  fast = &m->fast2_ids[hash >> (32 - FAST_BITS)];
+  fast = &m->fast2_ids[hash >> (32 - FAST2_BITS)];
   *fast = *fast ? UINT16_MAX : (uint16_t)(e->id * 3 + 1);
   fast = &m->fast3_ids[fast3_index(hash)];
   *fast = *fast ? UINT16_MAX : (uint16_t)(e->id * 3 + 1);
@@ -364,24 +415,18 @@ map_find_readonly(const FlatMap *m, const char *key, uint32_t len,
 static inline __attribute__((always_inline)) size_t
 dictionary_find_slot3_plus1(const FlatMap *m, const char *key, uint32_t len,
                             uint32_t hash) {
-  // Held for target A/B: rehashing only the 0.0142% triple collisions in a
-  // cold exact helper removes one hash-save uop and 112 hot bytes. A forced
-  // 10k-collision harness is exact, but static throughput remains 14 cycles;
-  // prior code-shrink attempts have lost on SPR, so it is not adopted blind.
-  uint16_t id = m->fast_ids[hash & (FAST_CAPACITY - 1)];
-  if (__builtin_expect(id == UINT16_MAX, 0))
-    id = m->fast2_ids[hash >> (32 - FAST_BITS)];
-  if (__builtin_expect(id == UINT16_MAX, 0))
-    id = m->fast3_ids[fast3_index(hash)];
-  if (__builtin_expect(id != UINT16_MAX, 1))
-    return id;
+  uint32_t seed = m->mph_seeds[hash & (MPH_BUCKET_CAPACITY - 1)];
+  uint32_t slot = (hash * seed) >> (32 - MPH_SLOT_BITS);
+  uint16_t mph_id = m->mph_ids[slot];
+  if (__builtin_expect(mph_id != UINT16_MAX, 1))
+    return mph_id;
   return (size_t)map_find_readonly(m, key, len, hash)->id * 3u + 1u;
 }
 static inline __attribute__((always_inline)) size_t
 map_find_slot3_plus1(FlatMap *m, const char *key, uint32_t len,
                      uint32_t hash) {
-  // The first two tables directly cover 99.6094% of public rows. Only their
-  // double collisions consult table three, raising direct coverage to 99.9858%.
+  // The three discovery tables directly cover nearly every row. Exact lookup
+  // remains the fallback for hashes that collide in all of them.
   if (__builtin_expect(m->size == CONTEST_CHANNELS, 1)) {
     uint16_t id = m->fast_ids[hash & (FAST_CAPACITY - 1)];
     // Rejected: staging this load through an AVX-512 K register to overlap
@@ -395,7 +440,7 @@ map_find_slot3_plus1(FlatMap *m, const char *key, uint32_t len,
     // 4.13M later loads but taxes all 1B rows with SHR+XOR, so it was discarded
     // before an EC2 run rather than perturbing this common dependency chain.
     if (__builtin_expect(id == UINT16_MAX, 0))
-      id = m->fast2_ids[hash >> (32 - FAST_BITS)];
+      id = m->fast2_ids[hash >> (32 - FAST2_BITS)];
     if (__builtin_expect(id == UINT16_MAX, 0))
       id = m->fast3_ids[fast3_index(hash)];
     // At 10k discovery every hash that can occur owns either a direct ID or
@@ -539,6 +584,113 @@ static void map_merge_ids(FlatMap *dst, const FlatMap *src,
     }
   }
 }
+// Once all 10k allowed channels are known, a per-bucket multiplier maps their
+// 32-bit hashes into a compact collision-free ID table. Equal 32-bit hashes
+// keep a UINT16_MAX slot and use exact bytes; if construction cannot place an
+// arbitrary valid key set, publishing is disabled and the exact map continues.
+typedef struct {
+  uint16_t bucket, count;
+} MphBucket;
+static int mph_bucket_compare(const void *a, const void *b) {
+  const MphBucket *x = (const MphBucket *)a;
+  const MphBucket *y = (const MphBucket *)b;
+  return (int)y->count - (int)x->count;
+}
+static int build_mph(FlatMap *m) {
+  uint32_t hashes[CONTEST_CHANNELS];
+  uint16_t items[CONTEST_CHANNELS];
+  uint16_t counts[MPH_BUCKET_CAPACITY] = {0};
+  uint16_t offsets[MPH_BUCKET_CAPACITY + 1u];
+  uint16_t cursor[MPH_BUCKET_CAPACITY];
+  uint8_t used[MPH_SLOT_CAPACITY] = {0};
+  uint32_t trial[MPH_SLOT_CAPACITY] = {0};
+  uint32_t trial_hash[MPH_SLOT_CAPACITY];
+  uint32_t placed_hash[MPH_SLOT_CAPACITY];
+  uint32_t seeds[MPH_BUCKET_CAPACITY];
+  uint16_t ids[MPH_SLOT_CAPACITY];
+  MphBucket order[MPH_BUCKET_CAPACITY];
+  for (uint32_t i = 0; i < MAP_CAPACITY; i++) {
+    const MapEntry *e = &m->entries[i];
+    if (!e->key)
+      continue;
+    hashes[e->id] = e->hash;
+    counts[e->hash & (MPH_BUCKET_CAPACITY - 1)]++;
+  }
+  offsets[0] = 0;
+  for (uint32_t b = 0; b < MPH_BUCKET_CAPACITY; b++) {
+    offsets[b + 1] = (uint16_t)(offsets[b] + counts[b]);
+    cursor[b] = offsets[b];
+    order[b] = (MphBucket){(uint16_t)b, counts[b]};
+  }
+  for (uint32_t id = 0; id < CONTEST_CHANNELS; id++) {
+    uint32_t bucket = hashes[id] & (MPH_BUCKET_CAPACITY - 1);
+    items[cursor[bucket]++] = (uint16_t)id;
+  }
+  qsort(order, MPH_BUCKET_CAPACITY, sizeof(*order), mph_bucket_compare);
+  uint32_t generation = 0;
+  for (uint32_t oi = 0; oi < MPH_BUCKET_CAPACITY; oi++) {
+    uint32_t bucket = order[oi].bucket;
+    uint32_t count = order[oi].count;
+    if (!count)
+      break;
+    uint32_t seed = 0;
+    int found = 0;
+    for (uint32_t attempt = 0; attempt < 4096u; attempt++) {
+      seed = attempt * 2u + 1u;
+      generation++;
+      uint32_t j;
+      for (j = 0; j < count; j++) {
+        uint32_t hash = hashes[items[offsets[bucket] + j]];
+        uint32_t slot = (hash * seed) >> (32 - MPH_SLOT_BITS);
+        if (slot >= MPH_ACTIVE_SLOTS ||
+            (used[slot] && placed_hash[slot] != hash) ||
+            (trial[slot] == generation && trial_hash[slot] != hash))
+          break;
+        trial[slot] = generation;
+        trial_hash[slot] = hash;
+      }
+      if (j == count) {
+        found = 1;
+        break;
+      }
+    }
+    if (!found)
+      goto failed;
+    uint32_t j;
+    for (j = 0; j < count; j++) {
+      uint16_t id = items[offsets[bucket] + j];
+      uint32_t hash = hashes[id];
+      uint32_t slot = (hash * seed) >> (32 - MPH_SLOT_BITS);
+      if (used[slot]) {
+        if (placed_hash[slot] != hash)
+          break;
+        ids[slot] = UINT16_MAX;
+      } else {
+        used[slot] = 1;
+        placed_hash[slot] = hash;
+        ids[slot] = (uint16_t)(id * 3u + 1u);
+      }
+    }
+    if (j != count)
+      goto failed;
+    seeds[bucket] = seed;
+  }
+  for (uint32_t id = 0; id < CONTEST_CHANNELS; id++) {
+    uint32_t hash = hashes[id];
+    uint32_t seed = seeds[hash & (MPH_BUCKET_CAPACITY - 1)];
+    uint32_t slot = (hash * seed) >> (32 - MPH_SLOT_BITS);
+    if (ids[slot] != id * 3u + 1u && ids[slot] != UINT16_MAX)
+      goto failed;
+  }
+  m->mph_seeds = (uint32_t *)m->fast_ids;
+  m->mph_ids = (uint16_t *)(m->mph_seeds + MPH_BUCKET_CAPACITY);
+  memcpy(m->mph_seeds, seeds,
+         MPH_BUCKET_CAPACITY * sizeof(*m->mph_seeds));
+  memcpy(m->mph_ids, ids, MPH_SLOT_CAPACITY * sizeof(*m->mph_ids));
+  return 1;
+failed:
+  return 0;
+}
 static void canonicalize_worker_map(Worker *w, FlatMap *dictionary) {
   if (dictionary == &w->map) {
     FlatMap hot;
@@ -589,13 +741,24 @@ static inline __attribute__((always_inline)) FlatMap *
 maybe_publish_dictionary(Worker *w) {
   FlatMap *dictionary =
       __atomic_load_n(&global_dictionary, __ATOMIC_ACQUIRE);
+  if (dictionary == DICTIONARY_BUILDING || dictionary == DICTIONARY_FAILED)
+    return NULL;
   if (!dictionary && w->map.size == CONTEST_CHANNELS) {
     FlatMap *expected = NULL;
-    if (__atomic_compare_exchange_n(&global_dictionary, &expected, &w->map, 0,
-                                    __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
-      dictionary = &w->map;
-    else
+    if (__atomic_compare_exchange_n(&global_dictionary, &expected,
+                                    DICTIONARY_BUILDING, 0, __ATOMIC_ACQ_REL,
+                                    __ATOMIC_ACQUIRE)) {
+      if (build_mph(&w->map)) {
+        __atomic_store_n(&global_dictionary, &w->map, __ATOMIC_RELEASE);
+        dictionary = &w->map;
+      } else {
+        __atomic_store_n(&global_dictionary, DICTIONARY_FAILED,
+                         __ATOMIC_RELEASE);
+      }
+    } else if (expected != DICTIONARY_BUILDING &&
+               expected != DICTIONARY_FAILED) {
       dictionary = expected;
+    }
   }
   return dictionary;
 }
@@ -613,9 +776,20 @@ static uint32_t timestamp8(const char *p) {
   // The dot products include ASCII '0': 53328 * (10000 + 1).
   return (uint32_t)x * 10000u + (uint32_t)(x >> 32) - 533333328u;
 }
-static uint32_t channel_length(const char *p) {
+static __attribute__((noinline)) uint32_t channel_length_long(const char *p) {
   const __m128i comma = _mm_set1_epi8(',');
-  uint32_t offset = 0;
+  uint32_t offset = 16;
+  for (;;) {
+    uint32_t mask = (uint32_t)_mm_movemask_epi8(_mm_cmpeq_epi8(
+        _mm_loadu_si128((const __m128i *)(p + offset)), comma));
+    if (mask)
+      return offset + (uint32_t)__builtin_ctz(mask);
+    offset += 16;
+  }
+}
+static inline __attribute__((always_inline)) uint32_t
+channel_length(const char *p) {
+  const __m128i comma = _mm_set1_epi8(',');
   // Rejected: AVX-512 mask compares replaced VPMOVMSKB and kept the first
   // result live across timestamp arithmetic, but exact EC2 1B regressed from
   // about 2.10 to 2.23 seconds.
@@ -625,15 +799,11 @@ static uint32_t channel_length(const char *p) {
   // slowed EC2 1B workers from 2.786 to 2.820 seconds.
   // Contest rows are complete and every channel is comma-terminated. The
   // anonymous guard page installed by main protects the final SIMD load.
-  for (;;) {
-    uint32_t mask = (uint32_t)_mm_movemask_epi8(_mm_cmpeq_epi8(
-        _mm_loadu_si128((const __m128i *)(p + offset)), comma));
-    // Rejected: forcing the common first-block comma to fall through changed
-    // GCC 15's global layout and slowed EC2 1B workers 3.004 -> 3.046 s.
-    if (mask)
-      return offset + (uint32_t)__builtin_ctz(mask);
-    offset += 16;
-  }
+  uint32_t mask = (uint32_t)_mm_movemask_epi8(
+      _mm_cmpeq_epi8(_mm_loadu_si128((const __m128i *)p), comma));
+  if (__builtin_expect(mask != 0, 1))
+    return (uint32_t)__builtin_ctz(mask);
+  return channel_length_long(p);
 }
 // The remaining 0.58% four-digit-length/one-digit-stamp decoder regressed the
 // exact EC2 1B gate to 2.162024 s when inlined. Keeping it noinline/cold moves
@@ -647,34 +817,36 @@ four_digit_increment(__m128i aligned_tail) {
   return _mm_dpwssd_epi32(_mm_setr_epi32(-53328, -48, 1, 0), pairs,
                           _mm_setr_epi16(100, 1, 1, 0, 0, 0, 0, 0));
 }
-static __attribute__((noinline)) void analyze_steady_rows(Worker *w,
-                                                          const char *p) {
+static __attribute__((noinline)) void analyze_steady_segment(Worker *w,
+                                                             const char *p) {
   const FlatMap *dictionary = w->dictionary;
   Stats ignored = {0, 0, 0, UINT16_MAX, UINT16_MAX};
-  Stats *pending_stats = &ignored;
-  __m128i pending_increment = _mm_setzero_si128();
+  Stats *pending_stats0 = &ignored, *pending_stats1 = &ignored;
+  Stats *pending_stats2 = &ignored, *pending_stats3 = &ignored;
+  Stats *pending_stats4 = &ignored;
+  __m128i pending_increment0 = _mm_setzero_si128();
+  __m128i pending_increment1 = _mm_setzero_si128();
+  __m128i pending_increment2 = _mm_setzero_si128();
+  __m128i pending_increment3 = _mm_setzero_si128();
+  __m128i pending_increment4 = _mm_setzero_si128();
   while (p < w->end) {
     uint32_t ts100 = timestamp8(p), delta = ts100 - YEAR_START / 100u;
-    uint32_t day = (uint32_t)(((uint64_t)delta * 155345u) >> 27);
-    uint32_t month = month_by_day[day];
+    uint32_t month = month_by_period[delta >> 5];
     p += 11;
     const char *key = p;
     uint32_t len = channel_length(key);
     p += len;
-    uint32_t hash = hash_bytes(key, len, w->end);
+    uint32_t hash = hash_bytes(key, len);
     size_t slot3_plus1 =
         dictionary_find_slot3_plus1(dictionary, key, len, hash);
     Stats *stats = (Stats *)((char *)w->map.aggs +
                              slot3_plus1 * 64 - 64) +
                    month;
-    // An older, larger loop lost about 10 ms with explicit PREFETCHT0, so it
-    // was removed there. Retesting after publish+THP+fast3+stamp2 changed the
-    // memory schedule: exact EC2 1B ABBA improved 1.861382 -> 1.854790 s.
-    // A two-row version was held out before target A/B: GCC added three
-    // register moves per row and grew this body 104 bytes (9.9%) for only one
-    // extra row of lead. Keep that experiment isolated until it can be timed.
+    // Five queued rows expose enough memory-level parallelism for the random
+    // 1.92 MiB Stats table. EC2 1B fell from 1.88 s to about 1.72 s while six
+    // rows added register pressure; removing this prefetch regressed to 1.92 s.
     __builtin_prefetch(stats, 1, 3);
-    stats_add(pending_stats, pending_increment);
+    stats_add(pending_stats0, pending_increment0);
     p++;
     uint64_t tail = load64(p);
     __m128i increment;
@@ -735,20 +907,74 @@ static __attribute__((noinline)) void analyze_steady_rows(Worker *w,
       if (__builtin_expect(ml >= UINT16_MAX, 0)) {
         stats_add_wide(&w->map, stats, (slot3_plus1 - 1) / 3, month, ml,
                        stamps);
-        pending_stats = &ignored;
-        pending_increment = _mm_setzero_si128();
+        pending_stats0 = pending_stats1;
+        pending_increment0 = pending_increment1;
+        pending_stats1 = pending_stats2;
+        pending_increment1 = pending_increment2;
+        pending_stats2 = pending_stats3;
+        pending_increment2 = pending_increment3;
+        pending_stats3 = pending_stats4;
+        pending_increment3 = pending_increment4;
+        pending_stats4 = &ignored;
+        pending_increment4 = _mm_setzero_si128();
         continue;
       }
       increment = _mm_setr_epi32((int)ml, (int)stamps, 1, 0);
     }
-    pending_stats = stats;
-    pending_increment = increment;
+    pending_stats0 = pending_stats1;
+    pending_increment0 = pending_increment1;
+    pending_stats1 = pending_stats2;
+    pending_increment1 = pending_increment2;
+    pending_stats2 = pending_stats3;
+    pending_increment2 = pending_increment3;
+    pending_stats3 = pending_stats4;
+    pending_increment3 = pending_increment4;
+    pending_stats4 = stats;
+    pending_increment4 = increment;
   }
-  stats_add(pending_stats, pending_increment);
+  stats_add(pending_stats0, pending_increment0);
+  stats_add(pending_stats1, pending_increment1);
+  stats_add(pending_stats2, pending_increment2);
+  stats_add(pending_stats3, pending_increment3);
+  stats_add(pending_stats4, pending_increment4);
+}
+static __attribute__((noinline)) void analyze_steady_rows(Worker *w,
+                                                          const char *p) {
+  const char *whole_end = w->end;
+  const char *drop_cursor = w->begin;
+  while (p < whole_end) {
+    const char *segment_end = whole_end;
+    if ((size_t)(whole_end - p) > (256u << 20)) {
+      const char *target = p + (256u << 20);
+      const char *nl =
+          (const char *)memchr(target, '\n', (size_t)(whole_end - target));
+      if (nl)
+        segment_end = nl + 1;
+    }
+    w->end = segment_end;
+    analyze_steady_segment(w, p);
+    uintptr_t drop_begin =
+        ((uintptr_t)drop_cursor + INPUT_PAGE_SIZE - 1) &
+        ~(uintptr_t)(INPUT_PAGE_SIZE - 1);
+    uintptr_t drop_end =
+        (uintptr_t)segment_end & ~(uintptr_t)(INPUT_PAGE_SIZE - 1);
+    if (drop_end > drop_begin)
+      madvise((void *)drop_begin, drop_end - drop_begin, MADV_DONTNEED);
+    drop_cursor = segment_end;
+    p = segment_end;
+  }
+  w->end = whole_end;
+  w->drop_cursor = drop_cursor;
 }
 static void *analyze_worker(void *arg) {
   Worker *w = (Worker *)arg;
+  cpu_set_t affinity;
+  CPU_ZERO(&affinity);
+  CPU_SET(w->cpu, &affinity);
+  pthread_setaffinity_np(pthread_self(), sizeof(affinity), &affinity);
+#ifdef PROFILE
   double t = now();
+#endif
   map_init(&w->map);
   // Rejected: parallel MADV_POPULATE_READ made workers contend while faulting
   // tmpfs up front; EC2 1B regressed from 2.27/2.27 to 2.69/2.54 seconds.
@@ -763,19 +989,14 @@ static void *analyze_worker(void *arg) {
     // Generated contest chunks begin at a timestamp and every parsed row
     // consumes its newline; a defensive blank-line guard cost two branches/row.
     uint32_t ts100 = timestamp8(p), delta = ts100 - YEAR_START / 100u;
-    // Exhaustive over all 315360 possible 100-second offsets in 2027:
-    // floor(delta/864) == floor(delta*155345/2^27). This replaces GCC 15's
-    // three-instruction reciprocal sequence with one IMUL and one shift;
-    // EC2 1B improved from 2.195/2.194 to 2.189/2.184 s.
-    uint32_t day = (uint32_t)(((uint64_t)delta * 155345u) >> 27);
-    uint32_t month = month_by_day[day];
+    uint32_t month = month_by_period[delta >> 5];
     p += 11;
     const char *key = p;
     // Rejected: both replacing and early-key-protected 256-slot L0 caches
     // added branches/exact checks and slowed warm 100M workers to 1.34--1.50 s.
     uint32_t len = channel_length(key);
     p += len;
-    uint32_t hash = hash_bytes(key, len, w->end);
+    uint32_t hash = hash_bytes(key, len);
     size_t slot3_plus1 = map_find_slot3_plus1(&w->map, key, len, hash);
     Stats *stats = (Stats *)((char *)w->map.aggs +
                              slot3_plus1 * 64 - 64) +
@@ -892,16 +1113,20 @@ static void *analyze_worker(void *arg) {
   {
     FlatMap *published =
         __atomic_load_n(&global_dictionary, __ATOMIC_ACQUIRE);
-    if (published)
+    if (published && published != DICTIONARY_BUILDING &&
+        published != DICTIONARY_FAILED)
       canonicalize_worker_map(w, published);
   }
 parsing_done:
+#ifdef PROFILE
   w->elapsed = now() - t;
-  // Keys were copied into the compact arena, so the parsed input pages are no
-  // longer referenced. Dropping complete pages here cut EC2 1B wall from
-  // 3.02 to 2.85--2.86 s by avoiding one large process-exit teardown.
+#endif
+  // Published workers drop 256 MiB ranges during parsing; small/fallback maps
+  // reach this one final range. This overlaps page-table teardown and avoids a
+  // roughly 50 ms post-parse tail without retaining pointers into input pages.
   uintptr_t drop_begin =
-      ((uintptr_t)w->begin + INPUT_PAGE_SIZE - 1) &
+      ((uintptr_t)(w->drop_cursor ? w->drop_cursor : w->begin) +
+       INPUT_PAGE_SIZE - 1) &
       ~(uintptr_t)(INPUT_PAGE_SIZE - 1);
   uintptr_t drop_end =
       (uintptr_t)w->end & ~(uintptr_t)(INPUT_PAGE_SIZE - 1);
@@ -1047,7 +1272,11 @@ static void write_result(FILE *out, const FlatMap *m) {
   free(buf);
 }
 int main(int argc, char **argv) {
-  const char *input = NULL, *output = NULL;
+  if (argc != 3) {
+    fprintf(stderr, "usage: %s input.csv output.txt\n", argv[0]);
+    return 1;
+  }
+  const char *input = argv[1], *output = argv[2];
   // Rejected on the benchmark EC2: 4 and 6 threads took 4.821/4.358 s for 1B,
   // versus 3.718 s with all eight logical CPUs; SMT throughput wins here.
   // Oversubscribing also lost after the final loop: 10/12/16 threads took
@@ -1056,42 +1285,23 @@ int main(int argc, char **argv) {
   // -t4 regress 2.909 -> 3.477 s. Cursor/end swaps and the larger schedule
   // outweighed the intended MLP and smaller per-worker accumulator footprint.
   long threads = sysconf(_SC_NPROCESSORS_ONLN);
-  int profile = 0;
-  int first_option = 1;
-  if (argc == 3 && argv[1][0] != '-' && argv[2][0] != '-') {
-    input = argv[1];
-    output = argv[2];
-    first_option = argc;
-  }
-  for (int i = first_option; i < argc; i++) {
-    if ((!strcmp(argv[i], "-i") || !strcmp(argv[i], "--input")) && i + 1 < argc)
-      input = argv[++i];
-    else if ((!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) &&
-             i + 1 < argc)
-      output = argv[++i];
-    else if ((!strcmp(argv[i], "-t") || !strcmp(argv[i], "--threads")) &&
-             i + 1 < argc)
-      threads = strtol(argv[++i], NULL, 10);
-    else if (!strcmp(argv[i], "--profile"))
-      profile = 1;
-    else {
-      fprintf(stderr, "unknown argument: %s\n", argv[i]);
-      return 1;
-    }
-  }
-  if (!input || threads < 1) {
-    fprintf(stderr, "optimized native analyzer requires -i and positive -t\n");
+  if (threads < 1) {
+    fprintf(stderr, "no online CPU\n");
     return 1;
   }
-  for (unsigned d = 0, m = 0; d < 365; d++) {
-    uint32_t ts = YEAR_START + d * 86400u;
+  if (WORKER_LIMIT && threads > WORKER_LIMIT)
+    threads = WORKER_LIMIT;
+  for (unsigned period = 0, m = 0; period < 315360u; period += 32u) {
+    uint32_t ts = YEAR_START + period * 100u;
     if (ts >= month_start[m + 1])
       m++;
     // Rejected: storing m*sizeof(Stats) here changed address arithmetic but
     // not its instruction count; EC2 1B lost 2.201/2.202 vs 2.199/2.196 s.
-    month_by_day[d] = (uint8_t)m;
+    month_by_period[period >> 5] = (uint8_t)m;
   }
-  double total = now(), t = now();
+#ifdef PROFILE
+  double total = now(), t = total;
+#endif
   int fd = open(input, O_RDONLY);
   if (fd < 0)
     die("open");
@@ -1120,7 +1330,9 @@ int main(int argc, char **argv) {
   // Rejected: removing this hint on resident tmpfs tied/slightly lost EC2 1B
   // (2.238/2.235 versus 2.234/2.236 s), so retain the kernel's scan intent.
   madvise((void *)data, size, MADV_SEQUENTIAL);
+#ifdef PROFILE
   double mmap_time = now() - t;
+#endif
   const char *nl = (const char *)memchr(data, '\n', size);
   const char header[] =
       "unix_timestamp,channel_path,message_length,stamp_count";
@@ -1138,7 +1350,9 @@ int main(int argc, char **argv) {
       (pthread_t *)malloc((size_t)threads * sizeof(*ids));
   if (!workers || !ids)
     die("alloc");
+#ifdef PROFILE
   t = now();
+#endif
   const char *start = begin;
   for (long i = 0; i < threads; i++) {
     const char *stop = end;
@@ -1151,17 +1365,22 @@ int main(int argc, char **argv) {
     }
     workers[i].begin = start;
     workers[i].end = stop;
+    workers[i].cpu = (int)i;
     start = stop;
     pthread_create(&ids[i], NULL, analyze_worker, &workers[i]);
   }
   for (long i = 0; i < threads; i++)
     pthread_join(ids[i], NULL);
+#ifdef PROFILE
   double worker_wall = now() - t, worker_sum = 0;
   for (long i = 0; i < threads; i++)
     worker_sum += workers[i].elapsed;
   t = now();
+#endif
   FlatMap *published =
       __atomic_load_n(&global_dictionary, __ATOMIC_ACQUIRE);
+  if (published == DICTIONARY_BUILDING || published == DICTIONARY_FAILED)
+    published = NULL;
   FlatMap merged;
   if (published) {
     for (long i = 0; i < threads; i++)
@@ -1189,39 +1408,52 @@ int main(int argc, char **argv) {
       map_free(&workers[i].map);
     }
   }
+#ifdef PROFILE
   double merge = now() - t;
-  FILE *out = output ? fopen(output, "wb") : stdout;
+#endif
+  FILE *out = fopen(output, "wb");
   if (!out)
     die("fopen");
+#ifdef PROFILE
   t = now();
+#endif
   write_result(out, &merged);
   fflush(out);
+#ifdef PROFILE
   double output_time = now() - t;
-  if (profile) {
-    size_t groups = 0;
-    uint64_t direct_rows = 0;
-    for (uint32_t i = 0; i < merged.size; i++)
-      for (unsigned j = 0; j < 12; j++)
-        groups += merged.aggs[i].month[j].messages != 0;
-    for (uint32_t i = 0; i < MAP_CAPACITY; i++) {
-      const MapEntry *e = &merged.entries[i];
-      if (!e->key ||
-          (merged.fast_ids[e->hash & (FAST_CAPACITY - 1)] == UINT16_MAX &&
-           merged.fast2_ids[e->hash >> (32 - FAST_BITS)] == UINT16_MAX &&
-           merged.fast3_ids[fast3_index(e->hash)] == UINT16_MAX))
-        continue;
-      for (unsigned j = 0; j < 12; j++)
-        direct_rows += merged.aggs[e->id].month[j].messages;
+  for (long i = 0; i < threads; i++)
+    fprintf(stderr, " worker%ld=%.6f", i, workers[i].elapsed);
+  fputc('\n', stderr);
+  size_t groups = 0;
+  uint64_t fallback_rows = 0;
+  uint32_t fallback_keys = 0;
+  for (uint32_t i = 0; i < MAP_CAPACITY; i++) {
+    const MapEntry *e = &merged.entries[i];
+    if (!e->key)
+      continue;
+    for (unsigned j = 0; j < 12; j++)
+      groups += merged.aggs[e->id].month[j].messages != 0;
+    if (merged.mph_ids) {
+      uint32_t seed =
+          merged.mph_seeds[e->hash & (MPH_BUCKET_CAPACITY - 1)];
+      uint32_t slot = (e->hash * seed) >> (32 - MPH_SLOT_BITS);
+      if (merged.mph_ids[slot] == UINT16_MAX) {
+        fallback_keys++;
+        for (unsigned j = 0; j < 12; j++)
+          fallback_rows += merged.aggs[e->id].month[j].messages;
+      }
     }
-    fprintf(stderr,
-            "profile mmap=%.6f workers_wall=%.6f workers_sum=%.6f merge=%.6f "
-            "output=%.6f total=%.6f chunks=%ld shared=%d groups=%zu "
-            "direct_rows=%" PRIu64 "\n",
-            mmap_time, worker_wall, worker_sum, merge, output_time,
-            now() - total, threads, published != NULL, groups, direct_rows);
   }
-  if (output)
-    fclose(out);
+  fprintf(stderr,
+          "profile mmap=%.6f workers_wall=%.6f workers_sum=%.6f merge=%.6f "
+          "output=%.6f total=%.6f chunks=%ld shared=%d groups=%zu "
+          "fallback_rows=%" PRIu64 " fallback_keys=%u mph=%d\n",
+          mmap_time, worker_wall, worker_sum, merge, output_time, now() - total,
+          threads, published != NULL, groups, fallback_rows, fallback_keys,
+          merged.mph_ids != NULL);
+#endif
+  fclose(out);
+  finish_profile();
   // ponytail: one-shot CLI; process teardown reclaims mappings and worker maps.
   _exit(0);
 }
