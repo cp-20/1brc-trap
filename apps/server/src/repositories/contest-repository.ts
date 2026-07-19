@@ -1,5 +1,5 @@
 import type { Language } from "@1brc/domain";
-import { and, asc, count, countDistinct, eq, ne } from "drizzle-orm";
+import { and, asc, count, countDistinct, eq, lte, ne } from "drizzle-orm";
 
 import type { LeaderboardRecord } from "../domain/leaderboard.js";
 import type { Database } from "../infrastructures/database.js";
@@ -52,7 +52,7 @@ export function createContestRepository(database: Database) {
           totalSubmissions: rows[0]?.submission_count ?? 0,
         }));
     },
-    leaderboard(language?: Language) {
+    leaderboard(language: Language | undefined, contestEndAt: Date) {
       return database
         .result(
           database.orm
@@ -75,6 +75,7 @@ export function createContestRepository(database: Database) {
             .where(
               and(
                 eq(submissions.public_verdict, "accepted"),
+                lte(submissions.upload_started_at, contestEndAt),
                 language ? eq(submissions.language, language) : undefined,
               ),
             )
@@ -87,7 +88,7 @@ export function createContestRepository(database: Database) {
           ),
         );
     },
-    leaderboardReplay() {
+    leaderboardReplay(contestEndAt: Date) {
       return database
         .result(
           database.orm
@@ -102,7 +103,12 @@ export function createContestRepository(database: Database) {
               submitted_at: submissions.upload_started_at,
             })
             .from(submissions)
-            .where(ne(submissions.status, "rejected"))
+            .where(
+              and(
+                ne(submissions.status, "rejected"),
+                lte(submissions.upload_started_at, contestEndAt),
+              ),
+            )
             .orderBy(asc(submissions.upload_started_at), asc(submissions.id)),
         )
         .map((rows) =>

@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import {
   activeSubmissionStatuses,
   hasContestStarted,
-  isSubmissionOpen,
   type ExecutionKind,
   type Language,
 } from "@1brc/domain";
@@ -77,14 +76,6 @@ export function createSubmissionRepository(database: Database) {
               "conflict",
               "contest_not_started",
               "コンテストはまだ始まっていません",
-            ),
-          );
-        if (!isSubmissionOpen(schedule, clock.now))
-          return err(
-            new AppError(
-              "contest_closed",
-              "contest_closed",
-              "提出受付は終了しました",
             ),
           );
         const [active] = await transaction

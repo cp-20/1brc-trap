@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 
 import { MariaDbContainer } from "@testcontainers/mariadb";
+import { eq } from "drizzle-orm";
 
 import type { Config } from "../infrastructures/config.js";
 import { createDatabase, type Database } from "../infrastructures/database.js";
@@ -23,6 +24,7 @@ import {
   users,
 } from "../infrastructures/schema.js";
 import { createAdminRepository } from "./admin-repository.js";
+import { createContestRepository } from "./contest-repository.js";
 import { createSubmissionRepository } from "./submission-repository.js";
 
 const mariadbImage =
@@ -96,18 +98,18 @@ describe("submission reservation", () => {
     expect(await database.orm.select().from(submissions)).toHaveLength(1);
   });
 
-  it("終了後は提出もユーザーもtransactionに残さない", async () => {
+  it("終了後も提出を予約できる", async () => {
     const repository = createSubmissionRepository(database);
     const contest = {
       ...openContest(),
       CONTEST_END_AT: new Date(Date.now() - 1_000),
     };
 
-    const result = await repository.reserve("late-user", contest);
+    const result = await repository.reserve("user", contest);
 
-    expect(result.isErr() && result.error.code).toBe("contest_closed");
-    expect(await database.orm.select().from(submissions)).toHaveLength(0);
-    expect(await database.orm.select().from(users)).toHaveLength(0);
+    expect(result.isOk()).toBe(true);
+    expect(await database.orm.select().from(submissions)).toHaveLength(1);
+    expect(await database.orm.select().from(users)).toHaveLength(1);
   });
 
   it("再起動時にuploadingを回収し、runningを失敗扱いにする", async () => {
@@ -183,6 +185,60 @@ describe("submission history", () => {
     ).toEqual([
       { submission_number: 2, queue_ahead: 1 },
       { submission_number: 1, queue_ahead: null },
+    ]);
+  });
+});
+
+describe("leaderboard submissions", () => {
+  it("終了後の提出を順位表と順位推移から除外する", async () => {
+    const contestEndAt = new Date("2026-07-17T00:00:00Z");
+    await database.orm
+      .insert(users)
+      .values([{ username: "before" }, { username: "after" }]);
+    await database.orm.insert(submissions).values([
+      {
+        id: "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "before",
+        status: "completed",
+        execution_kind: "native",
+        language: "c",
+        public_verdict: "accepted",
+        public_score_ns: "2",
+        upload_started_at: contestEndAt,
+      },
+      {
+        id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
+        username: "after",
+        status: "completed",
+        execution_kind: "native",
+        language: "c",
+        public_verdict: "accepted",
+        public_score_ns: "1",
+        upload_started_at: new Date(contestEndAt.getTime() + 1),
+      },
+    ]);
+    await database.orm
+      .update(users)
+      .set({
+        representative_submission_id: "0198d9ec-9024-4d69-8bb8-9c13a73f6768",
+      })
+      .where(eq(users.username, "before"));
+    await database.orm
+      .update(users)
+      .set({
+        representative_submission_id: "1198d9ec-9024-4d69-8bb8-9c13a73f6768",
+      })
+      .where(eq(users.username, "after"));
+    const repository = createContestRepository(database);
+
+    const leaderboard = await repository.leaderboard(undefined, contestEndAt);
+    const replay = await repository.leaderboardReplay(contestEndAt);
+
+    expect(leaderboard._unsafeUnwrap().map(({ username }) => username)).toEqual(
+      ["before"],
+    );
+    expect(replay._unsafeUnwrap().map(({ username }) => username)).toEqual([
+      "before",
     ]);
   });
 });

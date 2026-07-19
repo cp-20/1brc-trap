@@ -267,6 +267,7 @@ export function createBenchmarkWorkerService(
             LEFT JOIN submissions current ON current.id = u.representative_submission_id
              SET u.representative_submission_id = candidate.id
            WHERE u.username = ${job.username}
+             AND candidate.upload_started_at <= ${config.CONTEST_END_AT}
              AND (current.id IS NULL
                OR current.upload_started_at < candidate.upload_started_at
                OR (current.upload_started_at = candidate.upload_started_at AND current.id < candidate.id))

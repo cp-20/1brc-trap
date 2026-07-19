@@ -56,7 +56,7 @@ describe("contest schedule", () => {
     endAt: "2026-07-21T00:00:00.000Z",
   };
 
-  it("開始前は提出を閉じ、開始時刻から終了時刻までは受け付ける", () => {
+  it("開始前は提出を閉じ、開始後は終了時刻を過ぎても受け付ける", () => {
     expect(
       hasContestStarted(contest, new Date("2026-07-19T23:59:59.999Z")),
     ).toBe(false);
@@ -68,7 +68,7 @@ describe("contest schedule", () => {
     ).toBe(true);
     expect(
       isSubmissionOpen(contest, new Date("2026-07-21T00:00:00.001Z")),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

@@ -75,7 +75,7 @@ export function createContestService(
     ) {
       return ResultAsync.combine([
         repository.privatePublished(),
-        repository.leaderboard(language),
+        repository.leaderboard(language, config.CONTEST_END_AT),
       ]).map(([privatePublished, rows]) => {
         const board =
           requestedBoard === "private" && privatePublished
@@ -98,7 +98,9 @@ export function createContestService(
         .privatePublished()
         .andThen((privatePublished) =>
           privatePublished
-            ? repository.leaderboardReplay().map((rows) => withoutAdmins(rows))
+            ? repository
+                .leaderboardReplay(config.CONTEST_END_AT)
+                .map((rows) => withoutAdmins(rows))
             : errAsync(
                 new AppError(
                   "conflict",
@@ -117,7 +119,7 @@ export function createContestService(
         ResultAsync.combine([
           repository.state(),
           repository.participationStats(),
-          repository.leaderboard(language),
+          repository.leaderboard(language, config.CONTEST_END_AT),
         ]).map(([state, participation, rows]) => {
           const privatePublished = Boolean(state?.private_published_at);
           const board =

@@ -103,7 +103,7 @@ export function isSubmissionOpen(
   contest: ContestSchedule,
   now = new Date(),
 ): boolean {
-  return hasContestStarted(contest, now) && now <= new Date(contest.endAt);
+  return hasContestStarted(contest, now);
 }
 
 export function compareNanoseconds(left: string, right: string): number {

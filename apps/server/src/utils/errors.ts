@@ -4,7 +4,6 @@ export type AppErrorKind =
   | "forbidden"
   | "not_found"
   | "conflict"
-  | "contest_closed"
   | "infrastructure";
 
 export class AppError extends Error {
@@ -32,7 +31,6 @@ export function errorStatus(
     case "not_found":
       return 404;
     case "conflict":
-    case "contest_closed":
       return 409;
     case "infrastructure":
       return 500;
