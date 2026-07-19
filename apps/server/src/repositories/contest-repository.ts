@@ -87,6 +87,37 @@ export function createContestRepository(database: Database) {
           ),
         );
     },
+    leaderboardReplay() {
+      return database
+        .result(
+          database.orm
+            .select({
+              submission_id: submissions.id,
+              username: submissions.username,
+              language: submissions.language,
+              public_verdict: submissions.public_verdict,
+              private_verdict: submissions.private_verdict,
+              private_score_ns: submissions.private_score_ns,
+              disqualified_reason: submissions.disqualified_reason,
+              submitted_at: submissions.upload_started_at,
+            })
+            .from(submissions)
+            .where(ne(submissions.status, "rejected"))
+            .orderBy(asc(submissions.upload_started_at), asc(submissions.id)),
+        )
+        .map((rows) =>
+          rows.map((row) => ({
+            submissionId: row.submission_id,
+            username: row.username,
+            language: row.language,
+            publicVerdict: row.public_verdict,
+            privateVerdict: row.private_verdict,
+            privateScoreNs: row.private_score_ns,
+            disqualified: row.disqualified_reason !== null,
+            submittedAt: row.submitted_at.toISOString(),
+          })),
+        );
+    },
     publicDatasets(contestId: string) {
       return database.result(
         database.orm

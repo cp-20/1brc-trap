@@ -44,6 +44,48 @@ describe("contest policy", () => {
 
     expect(result.isOk() && result.value.board).toBe("public");
   });
+
+  it("順位推移はコンテスト終了後かつPrivate公開後だけ返す", async () => {
+    const beforeEndRepository = {
+      privatePublished: vi.fn(() => okAsync(true)),
+      leaderboardReplay: vi.fn(() => okAsync([])),
+    };
+    const beforeEndService = createContestService(
+      beforeEndRepository as unknown as ContestRepository,
+      {} as R2Signer,
+      { ...contestConfig, CONTEST_END_AT: new Date(Date.now() + 60_000) },
+    );
+
+    const beforeEnd = await beforeEndService.leaderboardReplay();
+
+    expect(beforeEnd.isErr() && beforeEnd.error.code).toBe("contest_not_ended");
+    expect(beforeEndRepository.leaderboardReplay).not.toHaveBeenCalled();
+
+    const unpublishedRepository = {
+      privatePublished: vi.fn(() => okAsync(false)),
+      leaderboardReplay: vi.fn(() => okAsync([])),
+    };
+    const unpublishedService = createContestService(
+      unpublishedRepository as unknown as ContestRepository,
+      {} as R2Signer,
+      { ...contestConfig, CONTEST_END_AT: new Date(Date.now() - 1_000) },
+    );
+
+    const unpublished = await unpublishedService.leaderboardReplay();
+
+    expect(unpublished.isErr() && unpublished.error.code).toBe(
+      "private_not_published",
+    );
+    expect(unpublishedRepository.leaderboardReplay).not.toHaveBeenCalled();
+
+    unpublishedRepository.privatePublished.mockImplementation(() =>
+      okAsync(true),
+    );
+    const published = await unpublishedService.leaderboardReplay();
+
+    expect(published.isOk() && published.value).toEqual([]);
+    expect(unpublishedRepository.leaderboardReplay).toHaveBeenCalledTimes(1);
+  });
 });
 
 const contestConfig = {

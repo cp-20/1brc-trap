@@ -49,6 +49,11 @@ export function createContestRouter(service: ContestService) {
         );
       },
     )
+    .get("/leaderboard/replay", (context) =>
+      resultResponse(context, service.leaderboardReplay(), (submissions) =>
+        context.json({ submissions }),
+      ),
+    )
     .get("/datasets", (context) =>
       resultResponse(context, service.publicDatasets(), (datasets) =>
         context.json({ datasets }),

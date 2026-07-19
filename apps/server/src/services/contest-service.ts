@@ -82,6 +82,30 @@ export function createContestService(
         return buildLeaderboard(rows, board, privatePublished);
       });
     },
+    leaderboardReplay() {
+      if (new Date() <= config.CONTEST_END_AT) {
+        return errAsync(
+          new AppError(
+            "conflict",
+            "contest_not_ended",
+            "順位推移はコンテスト終了後に公開されます",
+          ),
+        );
+      }
+      return repository
+        .privatePublished()
+        .andThen((privatePublished) =>
+          privatePublished
+            ? repository.leaderboardReplay()
+            : errAsync(
+                new AppError(
+                  "conflict",
+                  "private_not_published",
+                  "順位推移はPrivate結果の公開後に閲覧できます",
+                ),
+              ),
+        );
+    },
     liveSnapshot(
       requestedBoard: LeaderboardBoard | undefined,
       language: Language | undefined,

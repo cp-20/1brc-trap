@@ -1,6 +1,6 @@
 .toolbar {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -37,6 +37,63 @@
   cursor: not-allowed;
 }
 
+.replayControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.replayRange {
+  width: min(220px, 20vw);
+  accent-color: #20beff;
+}
+
+.replayCount {
+  min-width: 54px;
+  color: #98a6b5;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.replayButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #3b4957;
+  border-radius: 5px;
+  background: #182631;
+  color: #d8f4ff;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.replayButton:hover:not(:disabled) {
+  background: #203b4c;
+}
+
+.replayButton:disabled {
+  color: #6e7a87;
+  cursor: wait;
+}
+
+.replayStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 20px;
+  color: #98a6b5;
+  font-size: 13px;
+}
+
+.replayStatus strong {
+  color: #dce6f0;
+}
+
 @media (max-width: 270px) {
   .toolbar {
     align-items: stretch;
@@ -45,5 +102,13 @@
 
   .boardSwitch {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .replayControls {
+    margin-left: 0;
+  }
+
+  .replayRange {
+    width: 100%;
   }
 }

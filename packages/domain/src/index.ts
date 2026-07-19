@@ -193,6 +193,17 @@ export type LeaderboardEntry = {
   sourceAvailable: boolean;
 };
 
+export type LeaderboardReplaySubmission = {
+  submissionId: string;
+  username: string;
+  language: Language | null;
+  publicVerdict: Verdict | null;
+  privateVerdict: Verdict | null;
+  privateScoreNs: string | null;
+  disqualified: boolean;
+  submittedAt: string;
+};
+
 const datasetArtifactSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
   kind: z.enum(["input", "expected"]),

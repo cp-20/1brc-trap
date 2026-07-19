@@ -9,6 +9,7 @@ const getLeaderboard = (board: LeaderboardBoard, language?: Language) =>
       query: language ? { board, language } : { board },
     }),
   );
+const getLeaderboardReplay = () => rpcResult(rpc.leaderboard.replay.$get());
 
 export type ContestOverview = Awaited<ReturnType<typeof getContest>>;
 type Leaderboard = Awaited<ReturnType<typeof getLeaderboard>>;
@@ -24,12 +25,14 @@ export const contestQueryKeys = {
   overview: ["contest"] as const,
   leaderboard: (board: LeaderboardBoard, language = "all") =>
     ["leaderboard", board, language] as const,
+  leaderboardReplay: ["leaderboard-replay"] as const,
 };
 
 export const contestGateway = {
   contest: getContest,
   datasets: () => rpcResult(rpc.datasets.$get()),
   leaderboard: getLeaderboard,
+  leaderboardReplay: getLeaderboardReplay,
   subscribe(
     board: LeaderboardBoard,
     language: Language | undefined,

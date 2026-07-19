@@ -22,11 +22,13 @@ export function LeaderboardTable({
   comparisonEntries = entries,
   initialized,
   compact = false,
+  highlightUpdates = true,
 }: {
   entries: LeaderboardEntry[];
   comparisonEntries?: LeaderboardEntry[];
   initialized: boolean;
   compact?: boolean;
+  highlightUpdates?: boolean;
 }) {
   const [sourceEntry, setSourceEntry] = useState<LeaderboardEntry | null>(null);
   const updates = useLeaderboardUpdates(comparisonEntries, initialized);
@@ -87,7 +89,7 @@ export function LeaderboardTable({
                 <tr
                   key={entry.username}
                   className={
-                    update
+                    highlightUpdates && update
                       ? update.sequence % 2 === 0
                         ? styles.updatedRowA
                         : styles.updatedRowB
