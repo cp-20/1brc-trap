@@ -21,7 +21,10 @@
     "reportUnusedDisableDirectives": "error",
     "typeAware": true
   },
-  "ignorePatterns": ["optimized/typescript/main.ts"],
+  "ignorePatterns": [
+    "optimized/typescript/main.ts",
+    "packages/api/src/schema.ts"
+  ],
   "rules": {
     "eslint/max-lines": "off",
     "eslint/max-lines-per-function": "off",

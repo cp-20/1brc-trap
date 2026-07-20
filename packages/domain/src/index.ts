@@ -1,3 +1,4 @@
+import type { components } from "@1brc/api";
 import { z } from "zod";
 
 export const benchmarkPolicy = {
@@ -32,7 +33,7 @@ const scriptExecutionKinds = [
 ] as const;
 export const executionKinds = ["native", ...scriptExecutionKinds] as const;
 export const executionKindSchema = z.enum(executionKinds);
-export type ExecutionKind = z.infer<typeof executionKindSchema>;
+export type ExecutionKind = components["schemas"]["ExecutionKind"];
 
 export const nativeLanguages = [
   "c",
@@ -46,7 +47,7 @@ export const nativeLanguages = [
 const nativeLanguageSchema = z.enum(nativeLanguages);
 export const languages = [...nativeLanguages, ...scriptExecutionKinds] as const;
 export const languageSchema = z.enum(languages);
-export type Language = z.infer<typeof languageSchema>;
+export type Language = components["schemas"]["Language"];
 
 export const submissionStatuses = [
   "uploading",
@@ -58,7 +59,7 @@ export const submissionStatuses = [
   "disqualified",
 ] as const;
 export const submissionStatusSchema = z.enum(submissionStatuses);
-export type SubmissionStatus = z.infer<typeof submissionStatusSchema>;
+export type SubmissionStatus = components["schemas"]["SubmissionStatus"];
 
 export const activeSubmissionStatuses = [
   "uploading",
@@ -81,11 +82,11 @@ export const verdicts = [
   "disqualified",
 ] as const;
 export const verdictSchema = z.enum(verdicts);
-export type Verdict = z.infer<typeof verdictSchema>;
+export type Verdict = components["schemas"]["Verdict"];
 
 export const leaderboardBoards = ["public", "private"] as const;
 export const leaderboardBoardSchema = z.enum(leaderboardBoards);
-export type LeaderboardBoard = z.infer<typeof leaderboardBoardSchema>;
+export type LeaderboardBoard = components["schemas"]["LeaderboardBoard"];
 
 export type ContestSchedule = {
   startAt: string | Date;
@@ -181,28 +182,10 @@ export const sourceExtensions: Readonly<Record<Language, readonly string[]>> = {
   ruby: [".rb"],
 };
 
-export type LeaderboardEntry = {
-  rank: number | null;
-  rankChange: number | null;
-  username: string;
-  submissionId: string;
-  language: Language;
-  scoreNs: string | null;
-  verdict: Verdict;
-  submittedAt: string;
-  sourceAvailable: boolean;
-};
+export type LeaderboardEntry = components["schemas"]["LeaderboardEntry"];
 
-export type LeaderboardReplaySubmission = {
-  submissionId: string;
-  username: string;
-  language: Language | null;
-  publicVerdict: Verdict | null;
-  privateVerdict: Verdict | null;
-  privateScoreNs: string | null;
-  disqualified: boolean;
-  submittedAt: string;
-};
+export type LeaderboardReplaySubmission =
+  components["schemas"]["LeaderboardReplaySubmission"];
 
 const datasetArtifactSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
@@ -305,7 +288,7 @@ export const datasetManifestSchema = z
       });
     }
   });
-export type DatasetManifest = z.infer<typeof datasetManifestSchema>;
+export type DatasetManifest = components["schemas"]["DatasetManifest"];
 
 export function inferLanguage(
   kind: ExecutionKind,

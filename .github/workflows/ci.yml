@@ -27,11 +27,13 @@ jobs:
         run: bun run lint
       - name: TypeScriptの型を検査する
         run: bun run typecheck
-      - name: Drizzle migrationを検査する
+      - name: API生成物の同期を検査する
+        run: bun run api:check
+      - name: Go serverを検査する
         run: bun run db:check
-      - name: TypeScriptの単体テストとカバレッジ下限を検証する
+      - name: 単体テストとカバレッジを検証する
         run: bun run test:coverage
-      - name: TypeScriptアプリをbuildする
+      - name: 全アプリをbuildする
         run: bun run build
       - name: CDK templateを合成する
         run: bun run infra:cdk:synth -c allowedSshCidr=203.0.113.10/32 -c keyPairName=onebrc-ci >/dev/null

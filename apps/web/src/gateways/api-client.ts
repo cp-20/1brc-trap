@@ -1,24 +1,30 @@
-import type { ApiType } from "@1brc/server";
-import {
-  DetailedError,
-  hc,
-  parseResponse,
-  type ClientResponse,
-} from "hono/client";
+import type { paths } from "@1brc/api";
+import createClient from "openapi-fetch";
 
-export const rpc = hc<ApiType>(new URL("/api/v1", window.location.origin).href);
+export const apiClient = createClient<paths>({
+  baseUrl: window.location.origin,
+});
 
-export async function rpcResult<T extends ClientResponse<unknown>>(
-  response: T | Promise<T>,
+export async function apiResult<T>(
+  request: Promise<{ data?: T; error?: unknown; response: Response }>,
+): Promise<T> {
+  const { data, error, response } = await request;
+  if (response.ok) return data as T;
+  const detail = error as { error?: { message?: unknown } } | undefined;
+  throw new Error(
+    typeof detail?.error?.message === "string"
+      ? detail.error.message
+      : `API request failed (${response.status})`,
+  );
+}
+
+export function apiUrl(
+  pathname: keyof paths,
+  query?: Record<string, string | undefined>,
 ) {
-  try {
-    return await parseResponse(response);
-  } catch (error) {
-    if (error instanceof DetailedError) {
-      const message = error.detail?.data?.error?.message;
-      if (typeof message === "string")
-        throw new Error(message, { cause: error });
-    }
-    throw error;
+  const url = new URL(pathname, window.location.origin);
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, value);
   }
+  return url;
 }

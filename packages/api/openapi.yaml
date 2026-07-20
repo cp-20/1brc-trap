@@ -1,0 +1,2295 @@
+openapi: 3.0.0
+info:
+  title: 1BRC for traP API
+  version: 0.0.0
+tags: []
+paths:
+  /api/v1/access-key:
+    post:
+      operationId: issueAccessKey
+      parameters: []
+      responses:
+        '201':
+          description: The request has succeeded and a new resource has been created as a result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKeyResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+    delete:
+      operationId: revokeAccessKey
+      parameters: []
+      responses:
+        '204':
+          description: 'There is no content to send for this request, but the headers may be useful. '
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/admin/datasets/import:
+    post:
+      operationId: importDatasets
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported:
+                    type: integer
+                    format: int32
+                required:
+                  - imported
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatasetManifest'
+  /api/v1/admin/private/publish:
+    post:
+      operationId: publishPrivate
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  published:
+                    type: boolean
+                    enum:
+                      - true
+                required:
+                  - published
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/admin/private/unpublish:
+    post:
+      operationId: unpublishPrivate
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  published:
+                    type: boolean
+                    enum:
+                      - false
+                required:
+                  - published
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/admin/submissions:
+    get:
+      operationId: listAdminSubmissions
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionsResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/admin/submissions/{id}/disqualify:
+    post:
+      operationId: disqualifySubmission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+              required:
+                - reason
+  /api/v1/admin/submissions/{id}/retry:
+    post:
+      operationId: retrySubmission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/contest:
+    get:
+      operationId: getContest
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContestOverview'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/contest/events:
+    get:
+      operationId: streamContest
+      parameters:
+        - name: board
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/LeaderboardBoard'
+          explode: false
+        - name: language
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Language'
+          explode: false
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/datasets:
+    get:
+      operationId: getDatasets
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetsResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/datasets/{datasetId}/{artifact}/download:
+    get:
+      operationId: downloadDataset
+      parameters:
+        - name: datasetId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: artifact
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/DatasetKind'
+      responses:
+        '302':
+          description: Redirection
+          headers:
+            location:
+              required: true
+              schema:
+                type: string
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/healthz:
+    get:
+      operationId: getHealth
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+  /api/v1/leaderboard:
+    get:
+      operationId: getLeaderboard
+      parameters:
+        - name: board
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/LeaderboardBoard'
+          explode: false
+        - name: language
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Language'
+          explode: false
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leaderboard'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/leaderboard/replay:
+    get:
+      operationId: getLeaderboardReplay
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaderboardReplayResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/me:
+    get:
+      operationId: getMe
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/readyz:
+    get:
+      operationId: getReady
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '503':
+          description: Service unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+  /api/v1/submissions:
+    post:
+      operationId: createSubmission
+      parameters: []
+      responses:
+        '202':
+          description: The request has been accepted for processing, but processing has not yet completed.
+          headers:
+            location:
+              required: true
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionAccepted'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubmissionUpload'
+            encoding:
+              executionKind:
+                contentType: application/json
+              language:
+                contentType: application/json
+              source:
+                contentType: '*/*'
+              binary:
+                contentType: '*/*'
+    get:
+      operationId: listSubmissions
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionsResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/submissions/events:
+    get:
+      operationId: streamSubmissions
+      parameters: []
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/submissions/{id}:
+    get:
+      operationId: getSubmission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionResponse'
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+  /api/v1/submissions/{id}/source:
+    get:
+      operationId: getSubmissionSource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The request has succeeded.
+          headers:
+            content-disposition:
+              required: true
+              schema:
+                type: string
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+        '400':
+          description: The server could not understand the request due to invalid syntax.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '401':
+          description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '403':
+          description: Access is forbidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '404':
+          description: The server cannot find the requested resource.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '409':
+          description: The request conflicts with the current state of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    $ref: '#/components/schemas/ErrorDetail'
+                required:
+                  - error
+components:
+  schemas:
+    AccessKeyResponse:
+      type: object
+      required:
+        - accessKey
+        - prefix
+      properties:
+        accessKey:
+          type: string
+        prefix:
+          type: string
+    AuthUser:
+      type: object
+      required:
+        - username
+        - isAdmin
+        - method
+      properties:
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+        method:
+          type: string
+          enum:
+            - header
+            - token
+    BenchmarkEnvironment:
+      type: object
+      required:
+        - id
+        - instanceType
+        - cpu
+        - memory
+        - os
+        - kernel
+        - docker
+        - runnerImage
+        - node
+        - bun
+        - ruby
+        - sharedLibraries
+        - repetitions
+        - slowFirstAttemptSeconds
+        - timeoutSeconds
+        - pidLimit
+        - stdioLimitBytes
+        - outputLimitBytes
+      properties:
+        id:
+          type: string
+        instanceType:
+          type: string
+        cpu:
+          type: string
+        memory:
+          type: string
+        os:
+          type: string
+        kernel:
+          type: string
+        docker:
+          type: string
+        runnerImage:
+          type: string
+        node:
+          type: string
+        bun:
+          type: string
+        ruby:
+          type: string
+        sharedLibraries:
+          type: array
+          items:
+            type: string
+        repetitions:
+          type: integer
+          format: int32
+        slowFirstAttemptSeconds:
+          type: integer
+          format: int32
+        timeoutSeconds:
+          type: integer
+          format: int32
+        pidLimit:
+          type: integer
+          format: int32
+        stdioLimitBytes:
+          type: integer
+          format: int32
+        outputLimitBytes:
+          type: integer
+          format: int32
+    BenchmarkOutcome:
+      type: object
+      required:
+        - verdict
+        - scoreNs
+        - error
+      properties:
+        verdict:
+          $ref: '#/components/schemas/Verdict'
+        scoreNs:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Nanoseconds'
+          nullable: true
+        error:
+          type: string
+          nullable: true
+    ContestLiveUpdate:
+      type: object
+      required:
+        - contest
+        - leaderboard
+      properties:
+        contest:
+          type: object
+          properties:
+            privatePublishedAt:
+              type: string
+              allOf:
+                - $ref: '#/components/schemas/DateTimeString'
+              nullable: true
+            participants:
+              type: integer
+              format: int32
+            totalSubmissions:
+              type: integer
+              format: int32
+          required:
+            - privatePublishedAt
+            - participants
+            - totalSubmissions
+        leaderboard:
+          $ref: '#/components/schemas/Leaderboard'
+    ContestOverview:
+      type: object
+      required:
+        - id
+        - name
+        - startAt
+        - endAt
+        - privatePublishedAt
+        - participants
+        - totalSubmissions
+        - environment
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        startAt:
+          $ref: '#/components/schemas/DateTimeString'
+        endAt:
+          $ref: '#/components/schemas/DateTimeString'
+        privatePublishedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/DateTimeString'
+          nullable: true
+        participants:
+          type: integer
+          format: int32
+        totalSubmissions:
+          type: integer
+          format: int32
+        environment:
+          $ref: '#/components/schemas/BenchmarkEnvironment'
+    DatasetArtifact:
+      type: object
+      required:
+        - id
+        - kind
+        - label
+        - objectKey
+        - rows
+        - compressedBytes
+        - uncompressedBytes
+        - compressedSha256
+        - uncompressedSha256
+        - isPublic
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,63}$
+        kind:
+          $ref: '#/components/schemas/DatasetKind'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 128
+        objectKey:
+          type: string
+          maxLength: 1024
+          pattern: ^[\u0020-\u007E]+$
+        rows:
+          type: integer
+          format: int64
+          minimum: 1
+        compressedBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        uncompressedBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        compressedSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        uncompressedSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        isPublic:
+          type: boolean
+    DatasetKind:
+      type: string
+      enum:
+        - input
+        - expected
+    DatasetManifest:
+      type: object
+      required:
+        - schemaVersion
+        - contestId
+        - generatedAt
+        - generatorRevision
+        - artifacts
+      properties:
+        schemaVersion:
+          type: number
+          enum:
+            - 1
+        contestId:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,127}$
+        generatedAt:
+          $ref: '#/components/schemas/DateTimeString'
+        generatorRevision:
+          type: string
+          minLength: 1
+          maxLength: 128
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatasetArtifact'
+          minItems: 4
+    DatasetsResponse:
+      type: object
+      required:
+        - datasets
+      properties:
+        datasets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicDataset'
+    DateTimeString:
+      type: string
+    ErrorDetail:
+      type: object
+      required:
+        - code
+        - message
+        - requestId
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+    ExecutionKind:
+      type: string
+      enum:
+        - native
+        - javascript
+        - typescript
+        - bun
+        - ruby
+    Language:
+      type: string
+      enum:
+        - c
+        - cpp
+        - go
+        - rust
+        - zig
+        - csharp
+        - other
+        - javascript
+        - typescript
+        - bun
+        - ruby
+    Leaderboard:
+      type: object
+      required:
+        - board
+        - privatePublished
+        - ranked
+        - disqualified
+      properties:
+        board:
+          $ref: '#/components/schemas/LeaderboardBoard'
+        privatePublished:
+          type: boolean
+        ranked:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+        disqualified:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+    LeaderboardBoard:
+      type: string
+      enum:
+        - public
+        - private
+    LeaderboardEntry:
+      type: object
+      required:
+        - rank
+        - rankChange
+        - username
+        - submissionId
+        - language
+        - scoreNs
+        - verdict
+        - submittedAt
+        - sourceAvailable
+      properties:
+        rank:
+          type: integer
+          format: int32
+          nullable: true
+        rankChange:
+          type: integer
+          format: int32
+          nullable: true
+        username:
+          type: string
+        submissionId:
+          $ref: '#/components/schemas/Uuid'
+        language:
+          $ref: '#/components/schemas/Language'
+        scoreNs:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Nanoseconds'
+          nullable: true
+        verdict:
+          $ref: '#/components/schemas/Verdict'
+        submittedAt:
+          $ref: '#/components/schemas/DateTimeString'
+        sourceAvailable:
+          type: boolean
+    LeaderboardReplayResponse:
+      type: object
+      required:
+        - submissions
+      properties:
+        submissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardReplaySubmission'
+    LeaderboardReplaySubmission:
+      type: object
+      required:
+        - submissionId
+        - username
+        - language
+        - publicVerdict
+        - privateVerdict
+        - privateScoreNs
+        - disqualified
+        - submittedAt
+      properties:
+        submissionId:
+          $ref: '#/components/schemas/Uuid'
+        username:
+          type: string
+        language:
+          allOf:
+            - $ref: '#/components/schemas/Language'
+          nullable: true
+        publicVerdict:
+          allOf:
+            - $ref: '#/components/schemas/Verdict'
+          nullable: true
+        privateVerdict:
+          allOf:
+            - $ref: '#/components/schemas/Verdict'
+          nullable: true
+        privateScoreNs:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Nanoseconds'
+          nullable: true
+        disqualified:
+          type: boolean
+        submittedAt:
+          $ref: '#/components/schemas/DateTimeString'
+    MeResponse:
+      type: object
+      required:
+        - user
+      properties:
+        user:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AuthUser'
+          nullable: true
+    Nanoseconds:
+      type: string
+      pattern: ^\d+$
+    OkResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+    PublicDataset:
+      type: object
+      required:
+        - id
+        - kind
+        - label
+        - rows
+        - compressedBytes
+        - uncompressedBytes
+        - compressedSha256
+        - uncompressedSha256
+        - downloadUrl
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/DatasetKind'
+        label:
+          type: string
+        rows:
+          type: string
+        compressedBytes:
+          type: string
+        uncompressedBytes:
+          type: string
+        compressedSha256:
+          type: string
+        uncompressedSha256:
+          type: string
+        downloadUrl:
+          type: string
+    Submission:
+      type: object
+      required:
+        - id
+        - username
+        - executionKind
+        - language
+        - sourceFilename
+        - artifactSha256
+        - status
+        - public
+        - infrastructureError
+        - disqualifiedReason
+        - uploadStartedAt
+        - queuedAt
+        - startedAt
+        - completedAt
+        - queueAhead
+        - submissionNumber
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        username:
+          type: string
+        executionKind:
+          allOf:
+            - $ref: '#/components/schemas/ExecutionKind'
+          nullable: true
+        language:
+          allOf:
+            - $ref: '#/components/schemas/Language'
+          nullable: true
+        sourceFilename:
+          type: string
+          nullable: true
+        artifactSha256:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/SubmissionStatus'
+        public:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/BenchmarkOutcome'
+          nullable: true
+        private:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/BenchmarkOutcome'
+          nullable: true
+        infrastructureError:
+          type: string
+          nullable: true
+        disqualifiedReason:
+          type: string
+          nullable: true
+        uploadStartedAt:
+          $ref: '#/components/schemas/DateTimeString'
+        queuedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/DateTimeString'
+          nullable: true
+        startedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/DateTimeString'
+          nullable: true
+        completedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/DateTimeString'
+          nullable: true
+        queueAhead:
+          type: integer
+          format: int32
+          nullable: true
+        submissionNumber:
+          type: integer
+          format: int32
+          nullable: true
+    SubmissionAccepted:
+      type: object
+      required:
+        - id
+        - status
+        - statusUrl
+        - uploadStartedAt
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+          enum:
+            - queued
+        statusUrl:
+          type: string
+        uploadStartedAt:
+          $ref: '#/components/schemas/DateTimeString'
+    SubmissionResponse:
+      type: object
+      required:
+        - submission
+      properties:
+        submission:
+          $ref: '#/components/schemas/Submission'
+    SubmissionStatus:
+      type: string
+      enum:
+        - uploading
+        - queued
+        - running
+        - completed
+        - rejected
+        - infrastructure_error
+        - disqualified
+    SubmissionUpload:
+      type: object
+      properties:
+        executionKind:
+          $ref: '#/components/schemas/ExecutionKind'
+        language:
+          $ref: '#/components/schemas/Language'
+        source:
+          type: string
+          format: binary
+        binary:
+          type: string
+          format: binary
+      required:
+        - executionKind
+        - source
+    SubmissionsResponse:
+      type: object
+      required:
+        - submissions
+      properties:
+        submissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Submission'
+    Uuid:
+      type: string
+    Verdict:
+      type: string
+      enum:
+        - accepted
+        - wrong_answer
+        - runtime_error
+        - time_limit
+        - output_limit
+        - invalid_submission
+        - infrastructure_error
+        - disqualified

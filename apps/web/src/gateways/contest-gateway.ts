@@ -1,15 +1,17 @@
+import type { operations } from "@1brc/api";
 import type { Language, LeaderboardBoard } from "@1brc/domain";
 
-import { rpc, rpcResult } from "./api-client.js";
+import { apiClient, apiResult, apiUrl } from "./api-client.js";
 
-const getContest = () => rpcResult(rpc.contest.$get());
+const getContest = () => apiResult(apiClient.GET("/api/v1/contest"));
 const getLeaderboard = (board: LeaderboardBoard, language?: Language) =>
-  rpcResult(
-    rpc.leaderboard.$get({
-      query: language ? { board, language } : { board },
+  apiResult(
+    apiClient.GET("/api/v1/leaderboard", {
+      params: { query: { board, ...(language ? { language } : {}) } },
     }),
   );
-const getLeaderboardReplay = () => rpcResult(rpc.leaderboard.replay.$get());
+const getLeaderboardReplay = () =>
+  apiResult(apiClient.GET("/api/v1/leaderboard/replay"));
 
 export type ContestOverview = Awaited<ReturnType<typeof getContest>>;
 type Leaderboard = Awaited<ReturnType<typeof getLeaderboard>>;
@@ -30,7 +32,7 @@ export const contestQueryKeys = {
 
 export const contestGateway = {
   contest: getContest,
-  datasets: () => rpcResult(rpc.datasets.$get()),
+  datasets: () => apiResult(apiClient.GET("/api/v1/datasets")),
   leaderboard: getLeaderboard,
   leaderboardReplay: getLeaderboardReplay,
   subscribe(
@@ -38,11 +40,11 @@ export const contestGateway = {
     language: Language | undefined,
     onUpdate: (data: ContestLiveUpdate) => void,
   ) {
-    const source = new EventSource(
-      rpc.contest.events.$url({
-        query: language ? { board, language } : { board },
-      }),
-    );
+    const query = {
+      board,
+      ...(language ? { language } : {}),
+    } satisfies operations["streamContest"]["parameters"]["query"];
+    const source = new EventSource(apiUrl("/api/v1/contest/events", query));
     source.addEventListener("contest", (event) => {
       onUpdate(JSON.parse(event.data) as ContestLiveUpdate);
     });

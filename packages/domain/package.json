@@ -16,6 +16,7 @@
     "test:coverage": "bun test --isolate src --coverage"
   },
   "dependencies": {
+    "@1brc/api": "workspace:*",
     "zod": "^4.4.3"
   }
 }

@@ -1,7 +1,7 @@
 [tools]
 node = "24.18.0"
 bun = "1.3.14"
-go = "1.24.0"
+go = "1.25.12"
 "aqua:suzuki-shunsuke/pinact" = "4.1.0"
 
 [settings]

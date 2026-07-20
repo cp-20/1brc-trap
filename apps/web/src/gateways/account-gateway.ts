@@ -1,7 +1,7 @@
-import { rpc, rpcResult } from "./api-client.js";
+import { apiClient, apiResult } from "./api-client.js";
 
 export const accountGateway = {
-  me: () => rpcResult(rpc.me.$get()),
-  issueAccessKey: () => rpcResult(rpc["access-key"].$post()),
-  revokeAccessKey: () => rpcResult(rpc["access-key"].$delete()),
+  me: () => apiResult(apiClient.GET("/api/v1/me")),
+  issueAccessKey: () => apiResult(apiClient.POST("/api/v1/access-key")),
+  revokeAccessKey: () => apiResult(apiClient.DELETE("/api/v1/access-key")),
 };

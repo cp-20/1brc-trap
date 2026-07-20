@@ -1,20 +1,28 @@
 import type { DatasetManifest } from "@1brc/domain";
 
-import { rpc, rpcResult } from "./api-client.js";
+import { apiClient, apiResult } from "./api-client.js";
 
 export const adminGateway = {
-  submissions: () => rpcResult(rpc.admin.submissions.$get()),
-  publishPrivate: () => rpcResult(rpc.admin.private.publish.$post()),
-  unpublishPrivate: () => rpcResult(rpc.admin.private.unpublish.$post()),
+  submissions: () => apiResult(apiClient.GET("/api/v1/admin/submissions")),
+  publishPrivate: () =>
+    apiResult(apiClient.POST("/api/v1/admin/private/publish")),
+  unpublishPrivate: () =>
+    apiResult(apiClient.POST("/api/v1/admin/private/unpublish")),
   retry: (id: string) =>
-    rpcResult(rpc.admin.submissions[":id"].retry.$post({ param: { id } })),
+    apiResult(
+      apiClient.POST("/api/v1/admin/submissions/{id}/retry", {
+        params: { path: { id } },
+      }),
+    ),
   disqualify: (id: string, reason: string) =>
-    rpcResult(
-      rpc.admin.submissions[":id"].disqualify.$post({
-        param: { id },
-        json: { reason },
+    apiResult(
+      apiClient.POST("/api/v1/admin/submissions/{id}/disqualify", {
+        params: { path: { id } },
+        body: { reason },
       }),
     ),
   importDatasets: (manifest: DatasetManifest) =>
-    rpcResult(rpc.admin.datasets.import.$post({ json: manifest })),
+    apiResult(
+      apiClient.POST("/api/v1/admin/datasets/import", { body: manifest }),
+    ),
 };

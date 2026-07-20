@@ -10,6 +10,8 @@
     "cdk.out",
     "coverage",
     "bun.lock",
+    "packages/api/openapi.yaml",
+    "packages/api/src/schema.ts",
     "optimized/typescript/main.ts"
   ],
   "printWidth": 80,

@@ -16,15 +16,18 @@ COPY apps/mock-auth/package.json ./apps/mock-auth/package.json
 COPY apps/runner/package.json ./apps/runner/package.json
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/api/package.json ./packages/api/package.json
 COPY packages/domain/package.json ./packages/domain/package.json
 COPY infra/cdk/package.json ./infra/cdk/package.json
 RUN --mount=type=cache,id=onebrc-bun,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile --ignore-scripts \
       --filter '.' \
       --filter './apps/runner' \
+      --filter './packages/api' \
       --filter './packages/domain'
 
 FROM dependencies AS builder
+COPY packages/api ./packages/api
 COPY packages/domain ./packages/domain
 COPY apps/runner ./apps/runner
 RUN bun run --filter @1brc/runner build

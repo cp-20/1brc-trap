@@ -1,0 +1,7 @@
+emit:
+  - "@typespec/openapi3"
+options:
+  "@typespec/openapi3":
+    output-file: "{project-root}/openapi.yaml"
+    openapi-versions:
+      - 3.0.0

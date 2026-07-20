@@ -190,6 +190,8 @@ services:
           path: ./packages/domain
           ignore: *source-watch-ignore
         - <<: *rebuild-watch
+          path: ./packages/api
+        - <<: *rebuild-watch
           path: ./infra/docker/app.Dockerfile
         - <<: *rebuild-watch
           path: ./package.json
@@ -199,6 +201,10 @@ services:
           path: ./bunfig.toml
         - <<: *rebuild-watch
           path: ./tsconfig.base.json
+        - <<: *rebuild-watch
+          path: ./go.mod
+        - <<: *rebuild-watch
+          path: ./go.sum
 
   mock-auth:
     build:
